@@ -42,7 +42,8 @@
         #search-form {
             position: absolute;
             top: 10px;
-            left: 10px;
+            left: 50%;
+            transform: translateX(-50%);
             width: 40px;
             height: 40px;
             transition: width 0.3s ease, height 0.3s ease, padding 0.3s ease;
@@ -93,7 +94,7 @@
         }
         #other-functions {
             position: absolute;
-            top: 60px;
+            top: 10px;
             left: 10px;
             padding: 10px 20px;
             font-size: 16px;
@@ -129,13 +130,17 @@
         }
         #options-panel {
             display: none;
-            margin-top: 90vh;
+            position: absolute;
+            top: 50%;
+            left: 10px;
+            transform: translateY(-50%);
+            width: 400px; /* Expanded horizontally */
             padding: 10px;
             background-color: #fff;
             border: 1px solid #ccc;
             border-radius: 5px;
             animation: slideUp 0.5s ease-out;
-            max-height: 40vh;
+            max-height: 80vh; /* Increased to accommodate more content */
             overflow-y: auto;
             box-sizing: border-box;
             z-index: 5;
@@ -242,7 +247,6 @@
             to { height: 20vh; opacity: 1; }
         }
     </style>
-    <!-- Google Maps API with your key, removed async defer for testing -->
     <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyC6pWyasaBezX1PMIsc14ClB1R2qDdcOjY&callback=initMap"></script>
 </head>
 <body>
@@ -294,7 +298,6 @@
 
     <script src="https://cdn.jsdelivr.net/npm/express@4.17.1/dist/express.min.js"></script>
     <script>
-        // Google Maps Initialization with enhanced loading and error handling
         function initMap() {
             document.getElementById('map-loading').style.display = 'none';
             try {
@@ -311,18 +314,15 @@
             }
         }
 
-        // Ensure the callback runs after DOM load
+        window.initMap = initMap;
+
         document.addEventListener('DOMContentLoaded', function() {
             document.getElementById('map-loading').style.display = 'block';
             if (window.google && window.google.maps) {
                 initMap();
-            } else {
-                console.error("Google Maps API not loaded yet");
-                document.getElementById('map-error').style.display = 'block';
             }
         });
 
-        // Fallback if API fails to load
         window.addEventListener('load', function() {
             if (typeof google === 'undefined' || typeof google.maps === 'undefined') {
                 console.error("Google Maps API failed to load");
@@ -357,7 +357,6 @@
             }
         });
 
-        // Search form hover and click behavior
         const searchForm = document.getElementById('search-form');
         searchForm.addEventListener('click', function() {
             searchForm.classList.add('active');
