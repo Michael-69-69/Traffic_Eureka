@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Traffic App Web</title>
+    <style>
+        body {
+            margin: 0;
+            font-family: Arial, sans-serif;
+            background-color: #f0f0f0;
+            overflow: auto;
+        }
+        #map-container {
+            width: 100%;
+            height: 90vh;
+            position: relative;
+            overflow: hidden;
+            animation: fadeInZoom 1.5s ease-in-out;
+        }
+        #map {
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+        }
+        #map-error, #map-loading {
+            display: none;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 2;
+        }
+        #map-error {
+            color: red;
+            font-size: 18px;
+        }
+        #map-loading {
+            color: #4CAF50;
+            font-size: 18px;
+        }
+        #search-form {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            width: 40px;
+            height: 40px;
+            transition: width 0.3s ease, height 0.3s ease, padding 0.3s ease;
+            overflow: hidden;
+            background-color: #4CAF50;
+            border-radius: 5px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+            z-index: 10;
+            opacity: 0.8;
+        }
+        #search-form:hover, #search-form.active {
+            width: 300px;
+            height: 50px;
+            padding: 10px;
+            opacity: 1;
+        }
+        #search-bar {
+            width: 100%;
+            height: 100%;
+            padding: 0 10px;
+            font-size: 16px;
+            border: none;
+            border-radius: 5px 0 0 5px;
+            box-sizing: border-box;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+        #search-form:hover #search-bar, #search-form.active #search-bar {
+            opacity: 1;
+        }
+        #search-button {
+            position: absolute;
+            right: 0;
+            top: 0;
+            width: 40px;
+            height: 40px;
+            padding: 0;
+            font-size: 16px;
+            background-color: #45a049;
+            color: white;
+            border: none;
+            border-radius: 0 5px 5px 0;
+            cursor: pointer;
+            transition: background-color 0.3s ease;
+        }
+        #search-button:hover {
+            background-color: #3d8b40;
+        }
+        #other-functions {
+            position: absolute;
+            top: 60px;
+            left: 10px;
+            padding: 10px 20px;
+            font-size: 16px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            animation: bounceIn 0.7s ease-out, pulse 2s infinite alternate;
+            z-index: 10;
+        }
+        #other-functions:hover {
+            background-color: #45a049;
+        }
+        #toggle-options {
+            position: absolute;
+            bottom: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            padding: 10px 20px;
+            font-size: 16px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            animation: float 3s ease-in-out infinite;
+            z-index: 10;
+        }
+        #toggle-options:hover {
+            background-color: #45a049;
+            animation: shake 0.5s ease-in-out;
+        }
+        #options-panel {
+            display: none;
+            margin-top: 90vh;
+            padding: 10px;
+            background-color: #fff;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            animation: slideUp 0.5s ease-out;
+            max-height: 40vh;
+            overflow-y: auto;
+            box-sizing: border-box;
+            z-index: 5;
+        }
+        #controls {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            margin-bottom: 10px;
+            animation: fadeInSlide 0.7s ease-out;
+        }
+        #weather-icon {
+            width: 30px;
+            height: 30px;
+            background: url('https://openweathermap.org/img/wn/10d@2x.png') no-repeat center;
+            background-size: contain;
+            margin-right: 10px;
+        }
+        select {
+            padding: 5px;
+            font-size: 14px;
+            border-radius: 5px;
+            animation: popIn 0.5s ease-out;
+        }
+        #live-camera {
+            width: 150px;
+            height: 150px;
+            border: 2px solid green;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            background-color: #fff;
+            margin-bottom: 10px;
+            animation: zoomIn 0.6s ease-out;
+        }
+        #camera-select {
+            margin-top: 5px;
+            padding: 5px;
+            font-size: 14px;
+            border-radius: 5px;
+        }
+        #graph-container {
+            width: 100%;
+            height: 20vh;
+            border: 2px solid red;
+            position: relative;
+            animation: stretchIn 0.8s ease-out;
+        }
+        #graph-placeholder {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: gray;
+            font-size: 18px;
+        }
+        /* Animation Definitions */
+        @keyframes fadeInZoom {
+            from { opacity: 0; transform: scale(0.9); }
+            to { opacity: 1; transform: scale(1); }
+        }
+        @keyframes slideIn {
+            from { transform: translateX(-50%) translateY(-20px); opacity: 0; }
+            to { transform: translateX(-50%) translateY(0); opacity: 1; }
+        }
+        @keyframes bounceIn {
+            0% { transform: translateY(-20px) scale(0.9); opacity: 0; }
+            50% { transform: translateY(10px) scale(1.1); }
+            100% { transform: translateY(0) scale(1); opacity: 1; }
+        }
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+            100% { transform: scale(1); }
+        }
+        @keyframes float {
+            0%, 100% { transform: translateX(-50%) translateY(0); }
+            50% { transform: translateX(-50%) translateY(-10px); }
+        }
+        @keyframes shake {
+            0%, 100% { transform: translateX(-50%) rotate(0deg); }
+            25% { transform: translateX(-50%) rotate(5deg); }
+            75% { transform: translateX(-50%) rotate(-5deg); }
+        }
+        @keyframes slideUp {
+            from { transform: translateY(20px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+        @keyframes fadeInSlide {
+            from { opacity: 0; transform: translateX(-20px); }
+            to { opacity: 1; transform: translateX(0); }
+        }
+        @keyframes popIn {
+            0% { transform: scale(0.8); opacity: 0; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+        @keyframes zoomIn {
+            from { transform: scale(0.8); opacity: 0; }
+            to { transform: scale(1); opacity: 1; }
+        }
+        @keyframes stretchIn {
+            from { height: 0; opacity: 0; }
+            to { height: 20vh; opacity: 1; }
+        }
+    </style>
+    <!-- Google Maps API with your key, removed async defer for testing -->
+    <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyC6pWyasaBezX1PMIsc14ClB1R2qDdcOjY&callback=initMap"></script>
+</head>
+<body>
+    <div id="map-container">
+        <form id="search-form" method="POST" action="/search">
+            <input type="text" id="search-bar" name="searchText" placeholder="Search">
+            <button type="submit" id="search-button">🔍</button>
+        </form>
+        <button id="other-functions">Other Functions</button>
+        <div id="map"></div>
+        <div id="map-loading">Loading map...</div>
+        <div id="map-error">Map failed to load. Check console for details.</div>
+        <button id="toggle-options">Toggle Options</button>
+    </div>
+    <div id="options-panel">
+        <div id="controls">
+            <div id="weather-icon"></div>
+            <select name="city" id="city">
+                <option value="">City</option>
+                <option value="ho-chi-minh-city">Ho Chi Minh City</option>
+                <option value="da-nang">Da Nang</option>
+                <option value="can-tho">Can Tho</option>
+            </select>
+            <select name="district" id="district">
+                <option value="">District</option>
+                <option value="district-1">District 1</option>
+                <option value="district-3">District 3</option>
+                <option value="binh-thanh">Binh Thanh</option>
+            </select>
+            <select name="road" id="road">
+                <option value="">Roads</option>
+                <option value="le-loi">Le Loi</option>
+                <option value="tran-hung-dao">Tran Hung Dao</option>
+                <option value="nguyen-hue">Nguyen Hue</option>
+            </select>
+        </div>
+        <div id="live-camera">
+            <span>Live Camera</span>
+            <select id="camera-select" name="camera">
+                <option value="cam-1">Cam 1</option>
+                <option value="cam-2">Cam 2</option>
+                <option value="cam-3">Cam 3</option>
+            </select>
+        </div>
+        <div id="graph-container">
+            <div id="graph-placeholder">Graph Placeholder</div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/express@4.17.1/dist/express.min.js"></script>
+    <script>
+        // Google Maps Initialization with enhanced loading and error handling
+        function initMap() {
+            document.getElementById('map-loading').style.display = 'none';
+            try {
+                const hoChiMinhCity = { lat: 10.7769, lng: 106.7009 };
+                const map = new google.maps.Map(document.getElementById("map"), {
+                    center: hoChiMinhCity,
+                    zoom: 12,
+                });
+                console.log("Map initialized successfully");
+                document.getElementById('map-error').style.display = 'none';
+            } catch (error) {
+                console.error("Error initializing map:", error);
+                document.getElementById('map-error').style.display = 'block';
+            }
+        }
+
+        // Ensure the callback runs after DOM load
+        document.addEventListener('DOMContentLoaded', function() {
+            document.getElementById('map-loading').style.display = 'block';
+            if (window.google && window.google.maps) {
+                initMap();
+            } else {
+                console.error("Google Maps API not loaded yet");
+                document.getElementById('map-error').style.display = 'block';
+            }
+        });
+
+        // Fallback if API fails to load
+        window.addEventListener('load', function() {
+            if (typeof google === 'undefined' || typeof google.maps === 'undefined') {
+                console.error("Google Maps API failed to load");
+                document.getElementById('map-loading').style.display = 'none';
+                document.getElementById('map-error').style.display = 'block';
+            } else if (!document.getElementById('map').innerHTML) {
+                initMap();
+            }
+        });
+
+        document.getElementById('other-functions').addEventListener('click', function() {
+            alert('Other Functions clicked! More features to be added.');
+        });
+
+        document.getElementById('search-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const formData = new FormData(e.target);
+            const response = await fetch('/search', {
+                method: 'POST',
+                body: formData
+            });
+            const result = await response.json();
+            alert(result.message);
+        });
+
+        document.getElementById('toggle-options').addEventListener('click', function() {
+            const panel = document.getElementById('options-panel');
+            if (panel.style.display === 'none' || panel.style.display === '') {
+                panel.style.display = 'block';
+            } else {
+                panel.style.display = 'none';
+            }
+        });
+
+        // Search form hover and click behavior
+        const searchForm = document.getElementById('search-form');
+        searchForm.addEventListener('click', function() {
+            searchForm.classList.add('active');
+        });
+        searchForm.addEventListener('mouseleave', function() {
+            if (!searchForm.classList.contains('active')) {
+                searchForm.classList.remove('hover');
+            }
+        });
+        searchForm.addEventListener('mouseenter', function() {
+            if (!searchForm.classList.contains('active')) {
+                searchForm.classList.add('hover');
+            }
+        });
+        searchForm.addEventListener('focusout', function() {
+            if (!searchForm.contains(document.activeElement)) {
+                searchForm.classList.remove('active');
+            }
+        });
+    </script>
+</body>
+</html>
