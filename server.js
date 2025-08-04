@@ -1,44 +1,39 @@
 const express = require('express');
 const path = require('path');
+const logger = require('./middleware/logger');
+const validate = require('./middleware/validate');
+const hazardRoutes = require('./routes/hazards');
+const incidentRoutes = require('./routes/incidents');
+const searchRoutes = require('./routes/search');
+const controlRoutes = require('./routes/controls');
+const cameraRoutes = require('./routes/camera');
+const multer = require('multer');
+
+// Configure multer for file uploads
+const storage = multer.memoryStorage(); // Store in memory as buffer
+const upload = multer({ storage: storage });
+
+require('dotenv').config();
 
 const app = express();
-const port = 3000;
+const port = process.env.PORT || 3000;
 
-app.use(express.static(path.join(__dirname, 'public')));
+// Middleware
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+app.use(express.static(path.join(__dirname, 'public')));
+app.use(logger);
+
+// Routes
+app.use('/api/hazards', validate, upload.single('image'), hazardRoutes);
+app.use('/api/incidents', validate, upload.single('image'), incidentRoutes);
+app.use('/api/search', searchRoutes);
+app.use('/api/controls', controlRoutes);
+app.use('/api/camera', cameraRoutes);
 
 // Serve the HTML file
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
-
-// Handle search request
-app.post('/search', (req, res) => {
-    const searchText = req.body.searchText;
-    if (searchText) {
-        res.json({ message: `Searching for: ${searchText}`, status: 'success' });
-    } else {
-        res.json({ message: 'No search text provided', status: 'error' });
-    }
-});
-
-// Handle control selections
-app.post('/controls', (req, res) => {
-    const { city, district, road } = req.body;
-    res.json({
-        message: `Selected: City=${city}, District=${district}, Road=${road}`,
-        status: 'success'
-    });
-});
-
-// Handle camera selection
-app.post('/camera', (req, res) => {
-    const { camera } = req.body;
-    res.json({
-        message: `Selected Camera: ${camera}`,
-        status: 'success'
-    });
 });
 
 app.listen(port, () => {

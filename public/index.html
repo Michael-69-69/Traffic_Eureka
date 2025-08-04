@@ -301,7 +301,7 @@
             font-weight: 500;
             color: #2e7d32;
         }
-        #hazard-form input, #incident-form input {
+        #hazard-form input, #incident-form input, #hazard-form input[type="file"], #incident-form input[type="file"] {
             width: 100%;
             padding: 8px;
             margin-bottom: 15px;
@@ -362,7 +362,7 @@
 </head>
 <body>
     <div id="map-container">
-        <form id="search-form" method="POST" action="/search">
+        <form id="search-form" method="POST" action="/api/search">
             <input type="text" id="search-bar" name="searchText" placeholder="Search locations or routes">
             <button type="submit" id="search-button">🔍</button>
         </form>
@@ -419,19 +419,31 @@
         </div>
     </div>
     <div id="hazard-form">
-        <label for="hazard-cause">Hazard:</label>
-        <input type="text" id="hazard-cause" name="hazard-cause" placeholder="Enter hazard details">
+        <label for="hazard-cause">Hazard Cause:</label>
+        <input type="text" id="hazard-cause" name="hazard-cause" placeholder="Enter hazard cause">
+        <label for="hazard-severity">Severity (1-5):</label>
+        <input type="number" id="hazard-severity" name="hazard-severity" min="1" max="5" placeholder="1-5">
+        <label for="hazard-notes">Additional Notes:</label>
+        <input type="text" id="hazard-notes" name="hazard-notes" placeholder="Enter notes">
+        <label for="hazard-image">Upload Image:</label>
+        <input type="file" id="hazard-image" name="hazard-image" accept="image/*">
         <button id="submit-hazard">Submit</button>
         <button id="cancel-hazard">Cancel</button>
     </div>
     <div id="incident-form">
         <label for="incident-description">Incident Description:</label>
         <input type="text" id="incident-description" name="incident-description" placeholder="Enter incident details">
+        <label for="incident-type">Type:</label>
+        <input type="text" id="incident-type" name="incident-type" placeholder="e.g., Accident, Roadblock">
+        <label for="incident-impact">Impact Level (1-5):</label>
+        <input type="number" id="incident-impact" name="incident-impact" min="1" max="5" placeholder="1-5">
+        <label for="incident-image">Upload Image:</label>
+        <input type="file" id="incident-image" name="incident-image" accept="image/*">
         <button id="submit-incident">Submit</button>
         <button id="cancel-incident">Cancel</button>
     </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/express@4.17.1/dist/express.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/express@5.1.0/dist/express.min.js"></script>
     <script>
         let map;
         let hazards = [];
@@ -533,13 +545,32 @@
 
         document.getElementById('search-form').addEventListener('submit', async (e) => {
             e.preventDefault();
-            const formData = new FormData(e.target);
-            const response = await fetch('/search', {
-                method: 'POST',
-                body: formData
-            });
-            const result = await response.json();
-            alert(result.message);
+            const searchText = document.getElementById('search-bar').value;
+            if (searchText) {
+                const response = await fetch(`/api/search?query=${encodeURIComponent(searchText)}`, {
+                    method: 'GET'
+                });
+                const result = await response.json();
+                if (result.success) {
+                    alert(`Search results for: ${searchText}`);
+                    // Simulate centering map (replace with actual geocode logic if needed)
+                    const geocoder = new google.maps.Geocoder();
+                    geocoder.geocode({ address: searchText }, (results, status) => {
+                        if (status === 'OK' && results[0]) {
+                            map.setCenter(results[0].geometry.location);
+                            map.setZoom(14);
+                            new google.maps.Marker({
+                                map: map,
+                                position: results[0].geometry.location
+                            });
+                        } else {
+                            alert('Location not found');
+                        }
+                    });
+                } else {
+                    alert(result.message);
+                }
+            }
         });
 
         document.getElementById('toggle-options').addEventListener('click', function() {
@@ -572,11 +603,13 @@
             functionMenu.style.display = 'none';
             functionMenuVisible = false;
             map.setOptions({ draggableCursor: 'url(https://maps.google.com/mapfiles/kml/paddle/red-circle.png), auto' });
-            map.addListener('click', function(event) {
+            map.addListener('click', async function(event) {
                 selectedLocation = event.latLng;
                 map.setOptions({ draggableCursor: null });
-                showHazardForm();
-                google.maps.event.clearListeners(map, 'click'); // Remove listener after selection
+                const form = document.getElementById('hazard-form');
+                form.style.display = 'block';
+                document.getElementById('submit-hazard').focus();
+                google.maps.event.clearListeners(map, 'click');
             });
         });
 
@@ -584,11 +617,13 @@
             functionMenu.style.display = 'none';
             functionMenuVisible = false;
             map.setOptions({ draggableCursor: 'url(https://maps.google.com/mapfiles/kml/paddle/red-circle.png), auto' });
-            map.addListener('click', function(event) {
+            map.addListener('click', async function(event) {
                 selectedLocation = event.latLng;
                 map.setOptions({ draggableCursor: null });
-                showIncidentForm();
-                google.maps.event.clearListeners(map, 'click'); // Remove listener after selection
+                const form = document.getElementById('incident-form');
+                form.style.display = 'block';
+                document.getElementById('submit-incident').focus();
+                google.maps.event.clearListeners(map, 'click');
             });
         });
 
@@ -604,58 +639,127 @@
             document.getElementById('submit-incident').focus();
         }
 
-        document.getElementById('submit-hazard').addEventListener('click', function() {
+        document.getElementById('submit-hazard').addEventListener('click', async function() {
             const cause = document.getElementById('hazard-cause').value;
-            if (cause && selectedLocation) {
-                const hazard = {
-                    lat: selectedLocation.lat(),
-                    lng: selectedLocation.lng(),
-                    cause: cause,
-                    timestamp: new Date().toISOString()
-                };
-                hazards.push(hazard);
-                addHazardMarker(hazard);
-                saveHazards();
-                document.getElementById('hazard-form').style.display = 'none';
-                document.getElementById('hazard-cause').value = '';
-                selectedLocation = null;
+            const severity = document.getElementById('hazard-severity').value;
+            const notes = document.getElementById('hazard-notes').value;
+            const imageInput = document.getElementById('hazard-image');
+            const imageFile = imageInput.files[0];
+            console.log('Submitting hazard:', { cause, severity, notes, imageFile, lat: selectedLocation?.lat(), lng: selectedLocation?.lng() });
+            if (cause && selectedLocation && severity && notes) {
+                const formData = new FormData();
+                formData.append('lat', selectedLocation.lat());
+                formData.append('lng', selectedLocation.lng());
+                formData.append('cause', cause);
+                formData.append('severity', parseInt(severity));
+                formData.append('notes', notes);
+                formData.append('timestamp', new Date().toISOString());
+                if (imageFile) {
+                    formData.append('image', imageFile);
+                }
+
+                try {
+                    const response = await fetch('/api/hazards', {
+                        method: 'POST',
+                        body: formData
+                    });
+                    const result = await response.json();
+                    console.log('Server response:', result);
+                    if (result.success) {
+                        addHazardMarker(result.hazard);
+                        document.getElementById('hazard-form').style.display = 'none';
+                        document.getElementById('hazard-cause').value = '';
+                        document.getElementById('hazard-severity').value = '';
+                        document.getElementById('hazard-notes').value = '';
+                        imageInput.value = '';
+                        selectedLocation = null;
+                    } else {
+                        alert(`Error: ${result.message}`);
+                    }
+                } catch (error) {
+                    console.error('Fetch error:', error);
+                    alert('An error occurred while submitting the hazard.');
+                }
+            } else {
+                alert('Please fill all required fields and select a location.');
             }
         });
 
-        document.getElementById('submit-incident').addEventListener('click', function() {
+        document.getElementById('submit-incident').addEventListener('click', async function() {
             const description = document.getElementById('incident-description').value;
-            if (description && selectedLocation) {
-                const incident = {
-                    lat: selectedLocation.lat(),
-                    lng: selectedLocation.lng(),
-                    description: description,
-                    timestamp: new Date().toISOString(),
-                    verified: false
-                };
-                incidents.push(incident);
-                addIncidentMarker(incident);
-                saveIncidents();
-                document.getElementById('incident-form').style.display = 'none';
-                document.getElementById('incident-description').value = '';
-                selectedLocation = null;
+            const type = document.getElementById('incident-type').value;
+            const impact = document.getElementById('incident-impact').value;
+            const imageInput = document.getElementById('incident-image');
+            const imageFile = imageInput.files[0];
+            if (description && selectedLocation && type && impact) {
+                const formData = new FormData();
+                formData.append('lat', selectedLocation.lat());
+                formData.append('lng', selectedLocation.lng());
+                formData.append('description', description);
+                formData.append('type', type);
+                formData.append('impact', parseInt(impact));
+                formData.append('timestamp', new Date().toISOString());
+                formData.append('verified', false);
+                if (imageFile) {
+                    formData.append('image', imageFile);
+                }
+
+                const response = await fetch('/api/incidents', {
+                    method: 'POST',
+                    body: formData
+                });
+                const result = await response.json();
+                if (result.success) {
+                    addIncidentMarker(result.incident);
+                    document.getElementById('incident-form').style.display = 'none';
+                    document.getElementById('incident-description').value = '';
+                    document.getElementById('incident-type').value = '';
+                    document.getElementById('incident-impact').value = '';
+                    imageInput.value = '';
+                    selectedLocation = null;
+                }
             }
         });
 
         document.getElementById('cancel-hazard').addEventListener('click', function() {
             document.getElementById('hazard-form').style.display = 'none';
             document.getElementById('hazard-cause').value = '';
+            document.getElementById('hazard-severity').value = '';
+            document.getElementById('hazard-notes').value = '';
+            document.getElementById('hazard-image').value = '';
             selectedLocation = null;
             map.setOptions({ draggableCursor: null });
-            google.maps.event.clearListeners(map, 'click'); // Clear any lingering click listeners
+            google.maps.event.clearListeners(map, 'click');
         });
 
         document.getElementById('cancel-incident').addEventListener('click', function() {
             document.getElementById('incident-form').style.display = 'none';
             document.getElementById('incident-description').value = '';
+            document.getElementById('incident-type').value = '';
+            document.getElementById('incident-impact').value = '';
+            document.getElementById('incident-image').value = '';
             selectedLocation = null;
             map.setOptions({ draggableCursor: null });
-            google.maps.event.clearListeners(map, 'click'); // Clear any lingering click listeners
+            google.maps.event.clearListeners(map, 'click');
         });
+
+        async function loadHazards() {
+            const response = await fetch('/api/hazards');
+            const data = await response.json();
+            if (data.success) {
+                hazards = data.hazards;
+                hazards.forEach(addHazardMarker);
+            }
+        }
+
+        async function loadIncidents() {
+            const response = await fetch('/api/incidents');
+            const data = await response.json();
+            if (data.success) {
+                incidents = data.incidents;
+                incidents.forEach(addIncidentMarker);
+            }
+        }
 
         function addHazardMarker(hazard) {
             const marker = new google.maps.Marker({
@@ -667,7 +771,7 @@
                 }
             });
             const infoWindow = new google.maps.InfoWindow({
-                content: `<div>Hazard: ${hazard.cause}<br>Time: ${hazard.timestamp}</div>`
+                content: `<div>Hazard: ${hazard.cause}<br>Severity: ${hazard.severity}<br>Notes: ${hazard.notes}<br>Time: ${hazard.timestamp}<br>Lat: ${hazard.lat}, Lng: ${hazard.lng}<br>Image: <img src="${hazard.imageUrl}" width="100"></div>`
             });
             marker.addListener('mouseover', function() {
                 infoWindow.open(map, marker);
@@ -687,7 +791,7 @@
                 }
             });
             const infoWindow = new google.maps.InfoWindow({
-                content: `<div>Incident: ${incident.description}<br>Time: ${incident.timestamp}<br>Verified: ${incident.verified ? 'Yes' : 'No'}</div>`
+                content: `<div>Incident: ${incident.description}<br>Type: ${incident.type}<br>Impact: ${incident.impact}<br>Time: ${incident.timestamp}<br>Verified: ${incident.verified ? 'Yes' : 'No'}<br>Lat: ${incident.lat}, Lng: ${incident.lng}<br>Image: <img src="${incident.imageUrl}" width="100"></div>`
             });
             marker.addListener('mouseover', function() {
                 infoWindow.open(map, marker);
@@ -730,29 +834,9 @@
             setTimeout(() => cameraData.style.display = 'none', 5000);
         }
 
-        function loadHazards() {
-            const storedHazards = localStorage.getItem('hazards');
-            if (storedHazards) {
-                hazards = JSON.parse(storedHazards);
-                hazards.forEach(addHazardMarker);
-            }
-        }
-
-        function loadIncidents() {
-            const storedIncidents = localStorage.getItem('incidents');
-            if (storedIncidents) {
-                incidents = JSON.parse(storedIncidents);
-                incidents.forEach(addIncidentMarker);
-            }
-        }
-
-        function saveHazards() {
-            localStorage.setItem('hazards', JSON.stringify(hazards));
-        }
-
-        function saveIncidents() {
-            localStorage.setItem('incidents', JSON.stringify(incidents));
-        }
+        // Load data on startup
+        loadHazards();
+        loadIncidents();
     </script>
 </body>
 </html>
