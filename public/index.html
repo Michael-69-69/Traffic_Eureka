@@ -4,6 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Enhanced Traffic App</title>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://code.jquery.com/ui/1.12.1/jquery-ui.min.js"></script>
+    <link rel="stylesheet" href="https://code.jquery.com/ui/1.12.1/themes/base/jquery-ui.css">
     <style>
         body {
             margin: 0;
@@ -154,7 +157,15 @@
             border-radius: 8px;
             box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
             z-index: 10;
+        }
+        .drag-handle {
+            background-color: #2e7d32;
+            color: white;
+            padding: 5px;
+            text-align: center;
             cursor: move;
+            font-size: 14px;
+            border-radius: 4px 4px 0 0;
         }
         #options-panel .close-btn, #traffic-panel .close-btn {
             position: absolute;
@@ -378,6 +389,7 @@
         <button id="toggle-options">Toggle Options</button>
     </div>
     <div id="options-panel">
+        <div class="drag-handle">Toggle Options</div>
         <button class="close-btn" onclick="this.parentElement.style.display='none'">×</button>
         <div id="controls">
             <div style="display: flex; align-items: center; gap: 10px;">
@@ -407,6 +419,7 @@
         </div>
     </div>
     <div id="traffic-panel">
+        <div class="drag-handle">View Live Feeds</div>
         <button class="close-btn" onclick="this.parentElement.style.display='none'">×</button>
         <div id="live-camera">
             <span>Live Camera Feed</span>
@@ -443,7 +456,6 @@
         <button id="cancel-incident">Cancel</button>
     </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/express@5.1.0/dist/express.min.js"></script>
     <script>
         let map;
         let hazards = [];
@@ -480,6 +492,20 @@
             } else {
                 console.error("Google Maps API not loaded yet.");
             }
+
+            // Initialize jQuery UI Draggable for panels
+            $("#options-panel, #traffic-panel").draggable({
+                handle: ".drag-handle",
+                containment: "#map-container",
+                scroll: false,
+                snap: true,
+                start: function(event, ui) {
+                    $(this).css('z-index', 11);
+                },
+                stop: function(event, ui) {
+                    $(this).css('z-index', 10);
+                }
+            });
         });
 
         window.addEventListener('load', function() {
@@ -501,46 +527,6 @@
                     console.error(`${id} is not visible or missing.`);
                 }
             });
-
-            // Add drag functionality for panels
-            const panels = ['options-panel', 'traffic-panel'];
-            panels.forEach(panelId => {
-                const panel = document.getElementById(panelId);
-                let isDragging = false;
-                let currentX;
-                let currentY;
-                let initialX;
-                let initialY;
-
-                panel.addEventListener('mousedown', startDragging);
-                document.addEventListener('mousemove', drag);
-                document.addEventListener('mouseup', stopDragging);
-
-                function startDragging(e) {
-                    initialX = e.clientX - currentX;
-                    initialY = e.clientY - currentY;
-                    isDragging = true;
-                }
-
-                function drag(e) {
-                    if (isDragging) {
-                        e.preventDefault();
-                        currentX = e.clientX - initialX;
-                        currentY = e.clientY - initialY;
-                        panel.style.left = currentX + 'px';
-                        panel.style.top = currentY + 'px';
-                    }
-                }
-
-                function stopDragging() {
-                    isDragging = false;
-                }
-
-                // Initialize position
-                panel.style.position = 'absolute';
-                currentX = panel.offsetLeft;
-                currentY = panel.offsetTop;
-            });
         });
 
         document.getElementById('search-form').addEventListener('submit', async (e) => {
@@ -553,7 +539,6 @@
                 const result = await response.json();
                 if (result.success) {
                     alert(`Search results for: ${searchText}`);
-                    // Simulate centering map (replace with actual geocode logic if needed)
                     const geocoder = new google.maps.Geocoder();
                     geocoder.geocode({ address: searchText }, (results, status) => {
                         if (status === 'OK' && results[0]) {
@@ -626,18 +611,6 @@
                 google.maps.event.clearListeners(map, 'click');
             });
         });
-
-        function showHazardForm() {
-            const form = document.getElementById('hazard-form');
-            form.style.display = 'block';
-            document.getElementById('submit-hazard').focus();
-        }
-
-        function showIncidentForm() {
-            const form = document.getElementById('incident-form');
-            form.style.display = 'block';
-            document.getElementById('submit-incident').focus();
-        }
 
         document.getElementById('submit-hazard').addEventListener('click', async function() {
             const cause = document.getElementById('hazard-cause').value;
