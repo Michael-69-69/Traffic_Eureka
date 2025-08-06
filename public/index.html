@@ -4,9 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Enhanced Traffic App</title>
-    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-    <script src="https://code.jquery.com/ui/1.12.1/jquery-ui.min.js"></script>
-    <link rel="stylesheet" href="https://code.jquery.com/ui/1.12.1/themes/base/jquery-ui.css">
     <style>
         body {
             margin: 0;
@@ -151,21 +148,19 @@
             position: absolute;
             top: 20px;
             right: 20px;
-            width: 350px;
+            width: 600px;
+            min-width: 400px;
+            max-width: 90vw;
             padding: 15px;
             background: #ffffff;
             border-radius: 8px;
             box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
             z-index: 10;
-        }
-        .drag-handle {
-            background-color: #2e7d32;
-            color: white;
-            padding: 5px;
-            text-align: center;
             cursor: move;
-            font-size: 14px;
-            border-radius: 4px 4px 0 0;
+            max-height: 80vh;
+            overflow-y: auto;
+            resize: both;
+            overflow: auto;
         }
         #options-panel .close-btn, #traffic-panel .close-btn {
             position: absolute;
@@ -214,13 +209,13 @@
         }
         #live-camera {
             width: 100%;
-            height: 150px;
+            height: 400px;
             border: 2px solid #2e7d32;
             display: flex;
             flex-direction: column;
             align-items: center;
-            justify-content: center;
-            background: #f5f7fa;
+            justify-content: flex-start;
+            background: #000;
             margin-bottom: 15px;
             border-radius: 4px;
             position: relative;
@@ -228,12 +223,30 @@
             z-index: 10;
         }
         #camera-select {
-            margin-top: 5px;
-            padding: 5px;
+            margin: 10px;
+            padding: 8px 12px;
             font-size: 14px;
             border: 1px solid #ddd;
             border-radius: 4px;
             background: #fff;
+            width: calc(100% - 20px);
+            max-width: 500px;
+        }
+        #camera-video {
+            width: 100%;
+            height: calc(100% - 80px);
+            background: #000;
+        }
+        #camera-status {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: rgba(0, 0, 0, 0.7);
+            color: white;
+            padding: 5px 10px;
+            border-radius: 4px;
+            font-size: 12px;
+            z-index: 12;
         }
         #camera-data {
             display: none;
@@ -359,6 +372,20 @@
             box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
             white-space: nowrap;
         }
+        .live-indicator {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            background: #ff0000;
+            border-radius: 50%;
+            margin-right: 5px;
+            animation: pulse 1s infinite;
+        }
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
         /* Animation Definitions */
         @keyframes fadeInZoom {
             from { opacity: 0; transform: scale(0.9); }
@@ -370,6 +397,8 @@
         }
     </style>
     <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyC6pWyasaBezX1PMIsc14ClB1R2qDdcOjY&callback=initMap"></script>
+    <script src="https://vjs.zencdn.net/8.5.2/video.js"></script>
+    <link href="https://vjs.zencdn.net/8.5.2/video-js.css" rel="stylesheet">
 </head>
 <body>
     <div id="map-container">
@@ -389,7 +418,6 @@
         <button id="toggle-options">Toggle Options</button>
     </div>
     <div id="options-panel">
-        <div class="drag-handle">Toggle Options</div>
         <button class="close-btn" onclick="this.parentElement.style.display='none'">×</button>
         <div id="controls">
             <div style="display: flex; align-items: center; gap: 10px;">
@@ -419,15 +447,27 @@
         </div>
     </div>
     <div id="traffic-panel">
-        <div class="drag-handle">View Live Feeds</div>
         <button class="close-btn" onclick="this.parentElement.style.display='none'">×</button>
         <div id="live-camera">
-            <span>Live Camera Feed</span>
+            <div id="camera-status">
+                <span class="live-indicator"></span>LIVE
+            </div>
             <select id="camera-select" name="camera">
-                <option value="cam-1">Camera 1</option>
-                <option value="cam-2">Camera 2</option>
-                <option value="cam-3">Camera 3</option>
+                <option value="ly-thai-to-nguyen-dinh-chieu">Lý Thái Tổ - Nguyễn Đình Chiểu</option>
+                <option value="ba-thang-hai-su-van-hanh">3/2 - Sư Vạn Hạnh</option>
+                <option value="nga-sau-cong-hoa">Nút giao Ngã sáu Cộng Hòa</option>
+                <option value="ly-thai-to-su-van-hanh">Lý Thái Tổ - Sư Vạn Hạnh</option>
             </select>
+            <video
+                id="camera-video"
+                class="video-js vjs-default-skin"
+                controls
+                preload="auto"
+                data-setup="{}">
+                <p class="vjs-no-js">
+                    Loading live camera feed...
+                </p>
+            </video>
             <div id="camera-data"></div>
         </div>
     </div>
@@ -456,12 +496,57 @@
         <button id="cancel-incident">Cancel</button>
     </div>
 
+    <script src="https://cdn.jsdelivr.net/npm/express@5.1.0/dist/express.min.js"></script>
     <script>
         let map;
         let hazards = [];
         let incidents = [];
         let functionMenuVisible = false;
         let selectedLocation = null;
+        let videoPlayer = null;
+
+        // Camera data with actual locations and live image URLs
+        const cameras = {
+            'ly-thai-to-nguyen-dinh-chieu': {
+                lat: 10.7831,
+                lng: 106.6954,
+                name: 'Lý Thái Tổ - Nguyễn Đình Chiểu',
+                cameraUrl: 'https://giaothong.hochiminhcity.gov.vn/expandcameraplayer/?camId=63ae763bbfd3d90017e8f0c4&camLocation=L%C3%BD%20Th%C3%A1i%20T%E1%BB%95%20-%20Nguy%E1%BB%85n%20%C4%90%C3%ACnh%20Chi%E1%BB%83u&camMode=camera&videoUrl=https://d2zihajmogu5jn.cloudfront.net/bipbop-advanced/bipbop_16x9_variant.m3u8',
+                camId: '63ae763bbfd3d90017e8f0c4',
+                imageUrl: '/api/cameras/63ae763bbfd3d90017e8f0c4/image',
+                data: { density: '45%', weather: 'Sunny', traffic: 'Moderate' }
+            },
+            'ba-thang-hai-su-van-hanh': {
+                lat: 10.7892,
+                lng: 106.6638,
+                name: '3/2 - Sư Vạn Hạnh',
+                cameraUrl: 'https://giaothong.hochiminhcity.gov.vn/expandcameraplayer/?camId=63ae7a50bfd3d90017e8f2b2&camLocation=Ba%20Th%C3%A1ng%20Hai%20%E2%80%93%20S%C6%B0%20V%E1%BA%A1n%20H%E1%BA%A1nh&camMode=camera&videoUrl=https://d2zihajmogu5jn.cloudfront.net/bipbop-advanced/bipbop_16x9_variant.m3u8',
+                camId: '63ae7a50bfd3d90017e8f2b2',
+                imageUrl: '/api/cameras/63ae7a50bfd3d90017e8f2b2/image',
+                data: { density: '60%', weather: 'Cloudy', traffic: 'Heavy' }
+            },
+            'nga-sau-cong-hoa': {
+                lat: 10.8010,
+                lng: 106.6527,
+                name: 'Nút giao Ngã sáu Cộng Hòa',
+                cameraUrl: 'https://giaothong.hochiminhcity.gov.vn/expandcameraplayer/?camId=5deb576d1dc17d7c5515acf6&camLocation=N%C3%BAt%20giao%20Ng%C3%A3%20s%C3%A1u%20C%E1%BB%99ng%20H%C3%B2a&camMode=camera&videoUrl=https://d2zihajmogu5jn.cloudfront.net/bipbop-advanced/bipbop_16x9_variant.m3u8',
+                camId: '5deb576d1dc17d7c5515acf6',
+                imageUrl: '/api/cameras/5deb576d1dc17d7c5515acf6/image',
+                data: { density: '70%', weather: 'Rainy', traffic: 'Congested' }
+            },
+            'ly-thai-to-su-van-hanh': {
+                lat: 10.7825,
+                lng: 106.6823,
+                name: 'Lý Thái Tổ - Sư Vạn Hạnh',
+                cameraUrl: 'https://giaothong.hochiminhcity.gov.vn/expandcameraplayer/?camId=6623e7076f998a001b2523ea&camLocation=L%C3%BD%20Th%C3%A1i%20T%E1%BB%95%20-%20S%C6%B0%20V%E1%BA%A1n%20H%E1%BA%A1nh&camMode=camera&videoUrl=https://d2zihajmogu5jn.cloudfront.net/bipbop-advanced/bipbop_16x9_variant.m3u8',
+                camId: '6623e7076f998a001b2523ea',
+                imageUrl: '/api/cameras/6623e7076f998a001b2523ea/image',
+                data: { density: '35%', weather: 'Sunny', traffic: 'Free Flow' }
+            }
+        };
+
+        let currentCameraId = null;
+        let refreshInterval = null;
 
         function initMap() {
             document.getElementById('map-loading').style.display = 'none';
@@ -476,9 +561,145 @@
                 loadHazards();
                 loadIncidents();
                 addCameraMarkers();
+                initializeVideoPlayer();
             } catch (error) {
                 console.error("Error initializing map:", error);
                 document.getElementById('map-error').style.display = 'block';
+            }
+        }
+
+        function initializeVideoPlayer() {
+            // Load default camera
+            loadCameraFeed('ly-thai-to-nguyen-dinh-chieu');
+        }
+
+        function loadCameraFeed(cameraId) {
+            const camera = cameras[cameraId];
+            if (camera) {
+                currentCameraId = cameraId;
+                
+                // Clear existing refresh interval
+                if (refreshInterval) {
+                    clearInterval(refreshInterval);
+                }
+                
+                // Replace video player with live image container
+                const videoContainer = document.getElementById('camera-video');
+                videoContainer.innerHTML = `
+                    <div style="width: 100%; height: 100%; position: relative; background: #000; display: flex; align-items: center; justify-content: center;">
+                        <img id="live-camera-image" 
+                             src="" 
+                             alt="Live Camera Feed" 
+                             style="max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 4px;"
+                             onload="updateImageTimestamp()"
+                             onerror="handleImageError()">
+                        <div id="image-loading" 
+                             style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: white; display: none;">
+                             Loading...
+                        </div>
+                        <div id="last-update" 
+                             style="position: absolute; bottom: 10px; left: 10px; background: rgba(0,0,0,0.7); color: white; padding: 5px; border-radius: 3px; font-size: 12px;">
+                             Connecting...
+                        </div>
+                    </div>
+                `;
+                
+                // Load initial image
+                loadCameraImage();
+                
+                // Set up auto-refresh every 15 seconds (similar to the official app)
+                refreshInterval = setInterval(() => {
+                    loadCameraImage();
+                }, 15000);
+                
+                // Update camera data display
+                const cameraData = document.getElementById('camera-data');
+                cameraData.innerHTML = `
+                    Location: ${camera.name}<br>
+                    Traffic Density: ${camera.data.density}<br>
+                    Weather: ${camera.data.weather}<br>
+                    Status: ${camera.data.traffic}<br>
+                    <small>Auto-refresh: 15s</small>
+                `;
+                cameraData.style.display = 'block';
+
+                // Center map on selected camera
+                if (map) {
+                    map.setCenter({ lat: camera.lat, lng: camera.lng });
+                    map.setZoom(16);
+                }
+            }
+        }
+
+        async function loadCameraImage() {
+            if (!currentCameraId) return;
+            
+            const camera = cameras[currentCameraId];
+            if (!camera) return;
+            
+            const imageElement = document.getElementById('live-camera-image');
+            const loadingElement = document.getElementById('image-loading');
+            
+            if (imageElement && loadingElement) {
+                loadingElement.style.display = 'block';
+                
+                try {
+                    // Add timestamp to prevent caching
+                    const timestamp = Date.now();
+                    const response = await fetch(`/api/cameras/${camera.camId}/image?t=${timestamp}`);
+                    
+                    if (response.ok) {
+                        const blob = await response.blob();
+                        const imageUrl = URL.createObjectURL(blob);
+                        imageElement.src = imageUrl;
+                    } else {
+                        // Fallback: show iframe with original camera page
+                        const videoContainer = document.getElementById('camera-video');
+                        videoContainer.innerHTML = `
+                            <iframe 
+                                src="${camera.cameraUrl}" 
+                                width="100%" 
+                                height="100%" 
+                                frameborder="0" 
+                                allowfullscreen
+                                style="border-radius: 4px;">
+                            </iframe>
+                        `;
+                    }
+                } catch (error) {
+                    console.error('Error loading camera image:', error);
+                    handleImageError();
+                } finally {
+                    if (loadingElement) {
+                        loadingElement.style.display = 'none';
+                    }
+                }
+            }
+        }
+
+        function updateImageTimestamp() {
+            const timestampElement = document.getElementById('last-update');
+            if (timestampElement) {
+                const now = new Date();
+                timestampElement.textContent = `Last update: ${now.toLocaleTimeString()}`;
+            }
+        }
+
+        function handleImageError() {
+            const camera = cameras[currentCameraId];
+            if (camera) {
+                // Fallback to iframe when image fails
+                const videoContainer = document.getElementById('camera-video');
+                videoContainer.innerHTML = `
+                    <iframe 
+                        src="${camera.cameraUrl}" 
+                        width="100%" 
+                        height="100%" 
+                        frameborder="0" 
+                        allowfullscreen
+                        style="border-radius: 4px;">
+                    </iframe>
+                `;
             }
         }
 
@@ -492,20 +713,6 @@
             } else {
                 console.error("Google Maps API not loaded yet.");
             }
-
-            // Initialize jQuery UI Draggable for panels
-            $("#options-panel, #traffic-panel").draggable({
-                handle: ".drag-handle",
-                containment: "#map-container",
-                scroll: false,
-                snap: true,
-                start: function(event, ui) {
-                    $(this).css('z-index', 11);
-                },
-                stop: function(event, ui) {
-                    $(this).css('z-index', 10);
-                }
-            });
         });
 
         window.addEventListener('load', function() {
@@ -517,16 +724,52 @@
             } else if (!document.getElementById('map').innerHTML) {
                 initMap();
             }
-            // Verify button visibility
-            const buttons = ['search-form', 'other-functions', 'view-live-feeds', 'toggle-options'];
-            buttons.forEach(id => {
-                const elem = document.getElementById(id);
-                if (elem && window.getComputedStyle(elem).display !== 'none') {
-                    console.log(`${id} is visible.`);
-                } else {
-                    console.error(`${id} is not visible or missing.`);
+
+            // Add drag functionality for panels
+            const panels = ['options-panel', 'traffic-panel'];
+            panels.forEach(panelId => {
+                const panel = document.getElementById(panelId);
+                let isDragging = false;
+                let currentX = 0;
+                let currentY = 0;
+                let initialX;
+                let initialY;
+
+                panel.addEventListener('mousedown', startDragging);
+                document.addEventListener('mousemove', drag);
+                document.addEventListener('mouseup', stopDragging);
+
+                function startDragging(e) {
+                    initialX = e.clientX - currentX;
+                    initialY = e.clientY - currentY;
+                    isDragging = true;
                 }
+
+                function drag(e) {
+                    if (isDragging) {
+                        e.preventDefault();
+                        currentX = e.clientX - initialX;
+                        currentY = e.clientY - initialY;
+                        panel.style.left = currentX + 'px';
+                        panel.style.top = currentY + 'px';
+                    }
+                }
+
+                function stopDragging() {
+                    isDragging = false;
+                }
+
+                // Initialize position
+                panel.style.position = 'absolute';
+                currentX = panel.offsetLeft;
+                currentY = panel.offsetTop;
             });
+        });
+
+        // Camera selection change handler
+        document.getElementById('camera-select').addEventListener('change', function() {
+            const selectedCamera = this.value;
+            loadCameraFeed(selectedCamera);
         });
 
         document.getElementById('search-form').addEventListener('submit', async (e) => {
@@ -744,7 +987,7 @@
                 }
             });
             const infoWindow = new google.maps.InfoWindow({
-                content: `<div>Hazard: ${hazard.cause}<br>Severity: ${hazard.severity}<br>Notes: ${hazard.notes}<br>Time: ${hazard.timestamp}<br>Lat: ${hazard.lat}, Lng: ${hazard.lng}<br>Image: <img src="${hazard.imageUrl}" width="100"></div>`
+                content: `<div>Hazard: ${hazard.cause}<br>Severity: ${hazard.severity}<br>Notes: ${hazard.notes}<br>Time: ${hazard.timestamp}<br>Lat: ${hazard.lat}, Lng: ${hazard.lng}<br>${hazard.imageUrl ? `Image: <img src="${hazard.imageUrl}" width="100">` : ''}</div>`
             });
             marker.addListener('mouseover', function() {
                 infoWindow.open(map, marker);
@@ -764,7 +1007,7 @@
                 }
             });
             const infoWindow = new google.maps.InfoWindow({
-                content: `<div>Incident: ${incident.description}<br>Type: ${incident.type}<br>Impact: ${incident.impact}<br>Time: ${incident.timestamp}<br>Verified: ${incident.verified ? 'Yes' : 'No'}<br>Lat: ${incident.lat}, Lng: ${incident.lng}<br>Image: <img src="${incident.imageUrl}" width="100"></div>`
+                content: `<div>Incident: ${incident.description}<br>Type: ${incident.type}<br>Impact: ${incident.impact}<br>Time: ${incident.timestamp}<br>Verified: ${incident.verified ? 'Yes' : 'No'}<br>Lat: ${incident.lat}, Lng: ${incident.lng}<br>${incident.imageUrl ? `Image: <img src="${incident.imageUrl}" width="100">` : ''}</div>`
             });
             marker.addListener('mouseover', function() {
                 infoWindow.open(map, marker);
@@ -775,12 +1018,7 @@
         }
 
         function addCameraMarkers() {
-            const cameras = [
-                { lat: 10.7769, lng: 106.7009, id: 'cam-1' },
-                { lat: 10.7800, lng: 106.7050, id: 'cam-2' },
-                { lat: 10.7700, lng: 106.6950, id: 'cam-3' }
-            ];
-            cameras.forEach(camera => {
+            Object.entries(cameras).forEach(([id, camera]) => {
                 const marker = new google.maps.Marker({
                     position: { lat: camera.lat, lng: camera.lng },
                     map: map,
@@ -789,23 +1027,39 @@
                         scaledSize: new google.maps.Size(32, 32)
                     }
                 });
+                
+                const infoWindow = new google.maps.InfoWindow({
+                    content: `
+                        <div style="min-width: 200px;">
+                            <h4>${camera.name}</h4>
+                            <p><strong>Traffic:</strong> ${camera.data.traffic}</p>
+                            <p><strong>Density:</strong> ${camera.data.density}</p>
+                            <p><strong>Weather:</strong> ${camera.data.weather}</p>
+                            <button onclick="selectCameraFromMap('${id}')" style="background: #2e7d32; color: white; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer;">
+                                View Live Feed
+                            </button>
+                        </div>
+                    `
+                });
+                
                 marker.addListener('click', () => {
-                    showCameraData(camera.id);
+                    infoWindow.open(map, marker);
                 });
             });
         }
 
-        function showCameraData(cameraId) {
-            const data = {
-                'cam-1': { density: '35%', weather: 'Sunny', traffic: 'Free Flow' },
-                'cam-2': { density: '60%', weather: 'Rainy', traffic: 'Congested' },
-                'cam-3': { density: '20%', weather: 'Cloudy', traffic: 'Moderate' }
-            }[cameraId];
-            const cameraData = document.getElementById('camera-data');
-            cameraData.innerHTML = `Density: ${data.density}<br>Weather: ${data.weather}<br>Traffic: ${data.traffic}`;
-            cameraData.style.display = 'block';
-            setTimeout(() => cameraData.style.display = 'none', 5000);
-        }
+        // Global function to select camera from map
+        window.selectCameraFromMap = function(cameraId) {
+            // Open the traffic panel if not already open
+            const panel = document.getElementById('traffic-panel');
+            panel.style.display = 'block';
+            
+            // Select the camera in the dropdown
+            document.getElementById('camera-select').value = cameraId;
+            
+            // Load the camera feed
+            loadCameraFeed(cameraId);
+        };
 
         // Load data on startup
         loadHazards();
