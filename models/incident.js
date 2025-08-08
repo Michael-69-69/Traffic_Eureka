@@ -1,65 +1,51 @@
-const express = require('express');
-const router = express.Router();
-const Incident = require('../models/incident');
+// In-memory storage for incidents (replace with database in production)
+let incidents = [];
+let nextId = 1;
 
-router.get('/', (req, res) => {
-    try {
-        const incidents = Incident.getAll();
-        res.json({ success: true, incidents });
-    } catch (error) {
-        console.error('Error getting incidents:', error);
-        res.status(500).json({ 
-            success: false, 
-            message: 'Error retrieving incidents' 
-        });
-    }
-});
-
-router.post('/', (req, res) => {
-    console.log('POST /api/incidents - Request body:', req.body);
-    console.log('POST /api/incidents - File:', req.file);
-    
-    try {
-        const { lat, lng, description, type, impact, timestamp, verified } = req.body;
-        const image = req.file;
-        
-        // Validate required fields
-        if (!lat || !lng || !description || !type || !impact || !timestamp) {
-            return res.status(400).json({ 
-                success: false, 
-                message: 'Missing required fields: lat, lng, description, type, impact, timestamp' 
-            });
-        }
-        
-        // Convert string values to appropriate types
-        const incidentData = {
-            lat: parseFloat(lat),
-            lng: parseFloat(lng),
-            description: description.toString(),
-            type: type.toString(),
-            impact: parseInt(impact),
-            timestamp: timestamp.toString(),
-            verified: verified === 'true' || verified === true || false
+class Incident {
+    static create(incidentData) {
+        const incident = {
+            id: nextId++,
+            lat: parseFloat(incidentData.lat),
+            lng: parseFloat(incidentData.lng),
+            description: incidentData.description,
+            type: incidentData.type,
+            impact: parseInt(incidentData.impact),
+            timestamp: incidentData.timestamp,
+            verified: incidentData.verified || false,
+            imageUrl: incidentData.imageUrl || null,
+            createdAt: new Date().toISOString()
         };
         
-        // Add image if provided
-        if (image) {
-            incidentData.imageUrl = `data:${image.mimetype};base64,${image.buffer.toString('base64')}`;
-        }
-        
-        console.log('Creating incident with data:', incidentData);
-        const incident = Incident.create(incidentData);
-        
-        console.log('Incident created successfully:', incident);
-        res.json({ success: true, incident });
-        
-    } catch (error) {
-        console.error('Error creating incident:', error);
-        res.status(500).json({ 
-            success: false, 
-            message: 'Error creating incident: ' + error.message 
-        });
+        incidents.push(incident);
+        console.log('Incident created:', incident);
+        return incident;
     }
-});
+    
+    static getAll() {
+        return incidents;
+    }
+    
+    static getById(id) {
+        return incidents.find(incident => incident.id === parseInt(id));
+    }
+    
+    static delete(id) {
+        const index = incidents.findIndex(incident => incident.id === parseInt(id));
+        if (index !== -1) {
+            return incidents.splice(index, 1)[0];
+        }
+        return null;
+    }
+    
+    static update(id, updateData) {
+        const incident = this.getById(id);
+        if (incident) {
+            Object.assign(incident, updateData);
+            return incident;
+        }
+        return null;
+    }
+}
 
-module.exports = router;
+module.exports = Incident;
