@@ -1060,26 +1060,8 @@
             }
         }
 
-        document.addEventListener('DOMContentLoaded', function() {
-            console.log("DOM loaded, initializing...");
-            document.getElementById('map-loading').style.display = 'block';
-            
-            // Initialize event listeners
-            
-            // Report type tabs
-            document.getElementById('hazard-tab').addEventListener('click', () => switchReportType('hazard'));
-            document.getElementById('incident-tab').addEventListener('click', () => switchReportType('incident'));
-            
-            // Report form buttons
-            document.getElementById('submit-report').addEventListener('click', submitReport);
-            document.getElementById('cancel-report').addEventListener('click', hideReportForm);
-            addSearchAutocomplete();
-           // Replace the existing search form event listener in your index.html with this enhanced version
-
-// Keep track of search markers to remove them
+        // Keep track of search markers to remove them
 let searchMarkers = [];
-
-
 
 document.getElementById('search-form').addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -1125,7 +1107,6 @@ document.getElementById('search-form').addEventListener('submit', async (e) => {
             });
             
             searchMarkers.push(marker); // Track for removal
-            showClearButton(); // Show the clear button when we have search markers
             
             // Show info window
             const infoWindow = new google.maps.InfoWindow({
@@ -1181,7 +1162,6 @@ document.getElementById('search-form').addEventListener('submit', async (e) => {
                     });
                     
                     searchMarkers.push(marker); // Track for removal
-                    showClearButton(); // Show the clear button when we have search markers
                     
                     // Show info window
                     const infoWindow = new google.maps.InfoWindow({
@@ -1273,90 +1253,6 @@ function showSearchMessage(message, type = 'info') {
         }
     }, 5000);
 }
-
-// Button to clear search markers - ENHANCED VERSION
-function clearSearchMarkers() {
-    searchMarkers.forEach(marker => marker.setMap(null));
-    searchMarkers = [];
-    
-    // Hide the clear button
-    const clearButton = document.getElementById('clear-search');
-    if (clearButton) {
-        clearButton.style.display = 'none';
-    }
-    
-    // Show message
-    showSearchMessage('Search markers cleared', 'info');
-}
-
-// Show clear button when markers are added
-function showClearButton() {
-    const clearButton = document.getElementById('clear-search');
-    if (clearButton && searchMarkers.length > 0) {
-        clearButton.style.display = 'block';
-    }
-}
-
-// Add this to window for global access
-window.clearSearchMarkers = clearSearchMarkers;
-
-// Add clear button functionality (you can add this button to your HTML if needed)
-window.clearSearchMarkers = clearSearchMarkers;
-
-// Enhanced search message function
-function showSearchMessage(message, type = 'info') {
-    // Remove existing message if any
-    const existingMessage = document.getElementById('search-message');
-    if (existingMessage) {
-        existingMessage.remove();
-    }
-    
-    // Create message element with better styling
-    const messageDiv = document.createElement('div');
-    messageDiv.id = 'search-message';
-    messageDiv.style.cssText = `
-        position: absolute;
-        top: 70px;
-        left: 20px;
-        background: ${type === 'success' ? '#4caf50' : type === 'error' ? '#f44336' : '#2196f3'};
-        color: white;
-        padding: 12px 16px;
-        border-radius: 6px;
-        z-index: 15;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.2);
-        max-width: 350px;
-        font-size: 14px;
-        font-weight: 500;
-        animation: slideInFadeOut 5s ease-in-out;
-        backdrop-filter: blur(10px);
-    `;
-    messageDiv.textContent = message;
-    
-    // Add enhanced animation
-    if (!document.getElementById('search-animations')) {
-        const style = document.createElement('style');
-        style.id = 'search-animations';
-        style.textContent = `
-            @keyframes slideInFadeOut {
-                0% { opacity: 0; transform: translateX(-20px); }
-                15%, 85% { opacity: 1; transform: translateX(0); }
-                100% { opacity: 0; transform: translateX(-20px); }
-            }
-        `;
-        document.head.appendChild(style);
-    }
-    
-    // Add to page
-    document.getElementById('map-container').appendChild(messageDiv);
-    
-    // Auto remove after 5 seconds
-    setTimeout(() => {
-        if (messageDiv.parentNode) {
-            messageDiv.remove();
-        }
-    }, 5000);
-}
-
 
 // Enhanced autocomplete with better real-time suggestions
 function addSearchAutocomplete() {
@@ -1534,64 +1430,71 @@ function highlightMatch(text, query) {
     }
 }
 
-// Helper function to highlight matching text
-function highlightMatch(text, query) {
-    if (!query) return text;
+document.addEventListener('DOMContentLoaded', function() {
+    console.log("DOM loaded, initializing...");
+    document.getElementById('map-loading').style.display = 'block';
     
-    const regex = new RegExp(`(${query.split(' ').join('|')})`, 'gi');
-    return text.replace(regex, '<strong style="color: #2e7d32;">$1</strong>');
-}
+    // Initialize event listeners
+    
+    // Report type tabs
+    document.getElementById('hazard-tab').addEventListener('click', () => switchReportType('hazard'));
+    document.getElementById('incident-tab').addEventListener('click', () => switchReportType('incident'));
+    
+    // Report form buttons
+    document.getElementById('submit-report').addEventListener('click', submitReport);
+    document.getElementById('cancel-report').addEventListener('click', hideReportForm);
+    
+    // Initialize search autocomplete AFTER DOM is ready
+    addSearchAutocomplete();
 
+    // Panel toggles
+    document.getElementById('toggle-options').addEventListener('click', () => togglePanel('options-panel'));
+    document.getElementById('view-live-feeds').addEventListener('click', () => togglePanel('traffic-panel'));
 
+    // Function menu
+    const otherFunctions = document.getElementById('other-functions');
+    const functionMenu = document.getElementById('function-menu');
 
-            // Panel toggles
-            document.getElementById('toggle-options').addEventListener('click', () => togglePanel('options-panel'));
-            document.getElementById('view-live-feeds').addEventListener('click', () => togglePanel('traffic-panel'));
+    otherFunctions.addEventListener('click', function(e) {
+        e.stopPropagation();
+        functionMenuVisible = !functionMenuVisible;
+        functionMenu.style.display = functionMenuVisible ? 'block' : 'none';
+    });
 
-            // Function menu
-            const otherFunctions = document.getElementById('other-functions');
-            const functionMenu = document.getElementById('function-menu');
+    document.addEventListener('click', function(e) {
+        if (!otherFunctions.contains(e.target) && !functionMenu.contains(e.target)) {
+            functionMenu.style.display = 'none';
+            functionMenuVisible = false;
+        }
+    });
 
-            otherFunctions.addEventListener('click', function(e) {
-                e.stopPropagation();
-                functionMenuVisible = !functionMenuVisible;
-                functionMenu.style.display = functionMenuVisible ? 'block' : 'none';
-            });
-
-            document.addEventListener('click', function(e) {
-                if (!otherFunctions.contains(e.target) && !functionMenu.contains(e.target)) {
-                    functionMenu.style.display = 'none';
-                    functionMenuVisible = false;
-                }
-            });
-
-            // Report issue button
-            document.getElementById('report-issue').addEventListener('click', function() {
-                functionMenu.style.display = 'none';
-                functionMenuVisible = false;
-                map.setOptions({ draggableCursor: 'crosshair' });
-                
-                // Add click listener to map for location selection
-                const clickListener = google.maps.event.addListener(map, 'click', function(event) {
-                    selectedLocation = event.latLng;
-                    map.setOptions({ draggableCursor: null });
-                    showReportForm();
-                    google.maps.event.removeListener(clickListener);
-                });
-            });
-
-            // Camera selection
-            document.getElementById('camera-select').addEventListener('change', function() {
-                const selectedCamera = this.value;
-                loadCameraFeed(selectedCamera);
-            });
-
-            if (window.google && window.google.maps) {
-                initMap();
-            } else {
-                console.error("Google Maps API not loaded yet.");
-            }
+    // Report issue button
+    document.getElementById('report-issue').addEventListener('click', function() {
+        functionMenu.style.display = 'none';
+        functionMenuVisible = false;
+        map.setOptions({ draggableCursor: 'crosshair' });
+        
+        // Add click listener to map for location selection
+        const clickListener = google.maps.event.addListener(map, 'click', function(event) {
+            selectedLocation = event.latLng;
+            map.setOptions({ draggableCursor: null });
+            showReportForm();
+            google.maps.event.removeListener(clickListener);
         });
+    });
+
+    // Camera selection
+    document.getElementById('camera-select').addEventListener('change', function() {
+        const selectedCamera = this.value;
+        loadCameraFeed(selectedCamera);
+    });
+
+    if (window.google && window.google.maps) {
+        initMap();
+    } else {
+        console.error("Google Maps API not loaded yet.");
+    }
+});
 
         window.addEventListener('load', function() {
             console.log("Window loaded, verifying elements...");
