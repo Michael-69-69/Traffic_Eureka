@@ -1056,8 +1056,11 @@
             // Report form buttons
             document.getElementById('submit-report').addEventListener('click', submitReport);
             document.getElementById('cancel-report').addEventListener('click', hideReportForm);
-            
+            addSearchAutocomplete();
            // Replace the existing search form event listener in your index.html with this enhanced version
+
+// Keep track of search markers to remove them
+let searchMarkers = [];
 
 document.getElementById('search-form').addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -1069,6 +1072,10 @@ document.getElementById('search-form').addEventListener('submit', async (e) => {
     }
 
     console.log('Searching for:', searchText);
+    
+    // Clear previous search markers
+    searchMarkers.forEach(marker => marker.setMap(null));
+    searchMarkers = [];
     
     try {
         // First, try our backend search for Vietnam-specific places
@@ -1087,22 +1094,24 @@ document.getElementById('search-form').addEventListener('submit', async (e) => {
             map.setCenter(location);
             map.setZoom(15);
             
-            // Add marker
+            // Add marker and track it for removal
             const marker = new google.maps.Marker({
                 map: map,
                 position: location,
-                title: firstResult.name,
+                title: firstResult.displayName || firstResult.name,
                 icon: {
                     url: 'https://maps.google.com/mapfiles/kml/shapes/info-i_maps.png',
                     scaledSize: new google.maps.Size(32, 32)
                 }
             });
             
+            searchMarkers.push(marker); // Track for removal
+            
             // Show info window
             const infoWindow = new google.maps.InfoWindow({
                 content: `
                     <div style="padding: 5px;">
-                        <h4>${firstResult.name}</h4>
+                        <h4>${firstResult.displayName || firstResult.name}</h4>
                         <p><strong>Type:</strong> ${firstResult.type}</p>
                         <p><strong>Coordinates:</strong> ${firstResult.lat.toFixed(4)}, ${firstResult.lng.toFixed(4)}</p>
                         ${result.results.length > 1 ? `<p><em>Found ${result.results.length} results</em></p>` : ''}
@@ -1118,7 +1127,7 @@ document.getElementById('search-form').addEventListener('submit', async (e) => {
             infoWindow.open(map, marker);
             
             // Show success message
-            showSearchMessage(`Found: ${firstResult.name}`, 'success');
+            showSearchMessage(`Found: ${firstResult.displayName || firstResult.name}`, 'success');
             
         } else if (result.useGeocoding) {
             // Fallback to Google Maps Geocoding
@@ -1137,7 +1146,7 @@ document.getElementById('search-form').addEventListener('submit', async (e) => {
                     map.setCenter(location);
                     map.setZoom(15);
                     
-                    // Add marker
+                    // Add marker and track it for removal
                     const marker = new google.maps.Marker({
                         map: map,
                         position: location,
@@ -1147,6 +1156,8 @@ document.getElementById('search-form').addEventListener('submit', async (e) => {
                             scaledSize: new google.maps.Size(32, 32)
                         }
                     });
+                    
+                    searchMarkers.push(marker); // Track for removal
                     
                     // Show info window
                     const infoWindow = new google.maps.InfoWindow({
@@ -1182,7 +1193,7 @@ document.getElementById('search-form').addEventListener('submit', async (e) => {
     }
 });
 
-// Add this helper function to show search messages
+// Enhanced search message function
 function showSearchMessage(message, type = 'info') {
     // Remove existing message if any
     const existingMessage = document.getElementById('search-message');
@@ -1190,7 +1201,7 @@ function showSearchMessage(message, type = 'info') {
         existingMessage.remove();
     }
     
-    // Create message element
+    // Create message element with better styling
     const messageDiv = document.createElement('div');
     messageDiv.id = 'search-message';
     messageDiv.style.cssText = `
@@ -1199,36 +1210,41 @@ function showSearchMessage(message, type = 'info') {
         left: 20px;
         background: ${type === 'success' ? '#4caf50' : type === 'error' ? '#f44336' : '#2196f3'};
         color: white;
-        padding: 10px 15px;
-        border-radius: 4px;
+        padding: 12px 16px;
+        border-radius: 6px;
         z-index: 15;
-        box-shadow: 0 2px 6px rgba(0,0,0,0.2);
-        max-width: 300px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+        max-width: 350px;
         font-size: 14px;
-        animation: fadeInOut 4s ease-in-out;
+        font-weight: 500;
+        animation: slideInFadeOut 5s ease-in-out;
+        backdrop-filter: blur(10px);
     `;
     messageDiv.textContent = message;
     
-    // Add animation
-    const style = document.createElement('style');
-    style.textContent = `
-        @keyframes fadeInOut {
-            0% { opacity: 0; transform: translateY(-10px); }
-            10%, 90% { opacity: 1; transform: translateY(0); }
-            100% { opacity: 0; transform: translateY(-10px); }
-        }
-    `;
-    document.head.appendChild(style);
+    // Add enhanced animation
+    if (!document.getElementById('search-animations')) {
+        const style = document.createElement('style');
+        style.id = 'search-animations';
+        style.textContent = `
+            @keyframes slideInFadeOut {
+                0% { opacity: 0; transform: translateX(-20px); }
+                15%, 85% { opacity: 1; transform: translateX(0); }
+                100% { opacity: 0; transform: translateX(-20px); }
+            }
+        `;
+        document.head.appendChild(style);
+    }
     
     // Add to page
     document.getElementById('map-container').appendChild(messageDiv);
     
-    // Auto remove after 4 seconds
+    // Auto remove after 5 seconds
     setTimeout(() => {
         if (messageDiv.parentNode) {
             messageDiv.remove();
         }
-    }, 4000);
+    }, 5000);
 }
 
 // Optional: Add search suggestions/autocomplete
@@ -1315,11 +1331,129 @@ function addSearchAutocomplete() {
         }
     });
 }
+// Enhanced autocomplete with better real-time suggestions
+function addSearchAutocomplete() {
+    const searchBar = document.getElementById('search-bar');
+    let currentSuggestions = null;
+    let debounceTimer = null;
+    
+    searchBar.addEventListener('input', async (e) => {
+        const query = e.target.value.trim();
+        
+        // Clear existing timer
+        if (debounceTimer) {
+            clearTimeout(debounceTimer);
+        }
+        
+        // Remove existing suggestions
+        if (currentSuggestions) {
+            currentSuggestions.remove();
+            currentSuggestions = null;
+        }
+        
+        if (query.length < 1) return;
+        
+        // Debounce the search to avoid too many requests
+        debounceTimer = setTimeout(async () => {
+            try {
+                const response = await fetch(`/api/search/suggestions?q=${encodeURIComponent(query)}`);
+                const result = await response.json();
+                
+                if (result.success && result.suggestions.length > 0) {
+                    // Create suggestions dropdown
+                    currentSuggestions = document.createElement('div');
+                    currentSuggestions.style.cssText = `
+                        position: absolute;
+                        top: 100%;
+                        left: 0;
+                        right: 0;
+                        background: white;
+                        border: 1px solid #ddd;
+                        border-top: none;
+                        border-radius: 0 0 8px 8px;
+                        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+                        z-index: 20;
+                        max-height: 250px;
+                        overflow-y: auto;
+                    `;
+                    
+                    result.suggestions.forEach((suggestion, index) => {
+                        const item = document.createElement('div');
+                        item.style.cssText = `
+                            padding: 12px 15px;
+                            cursor: pointer;
+                            border-bottom: 1px solid #eee;
+                            transition: all 0.2s ease;
+                            display: flex;
+                            justify-content: space-between;
+                            align-items: center;
+                        `;
+                        
+                        // Highlight matching text
+                        const highlightedName = highlightMatch(suggestion.displayName || suggestion.name, query);
+                        
+                        item.innerHTML = `
+                            <div>
+                                <div style="font-weight: 500; color: #333;">${highlightedName}</div>
+                                <div style="font-size: 12px; color: #666; text-transform: capitalize;">${suggestion.type}</div>
+                            </div>
+                            <div style="font-size: 11px; color: #999; background: #f5f5f5; padding: 2px 6px; border-radius: 10px;">
+                                ${suggestion.matchType || 'match'}
+                            </div>
+                        `;
+                        
+                        item.addEventListener('mouseenter', () => {
+                            item.style.background = '#f8f9fa';
+                        });
+                        
+                        item.addEventListener('mouseleave', () => {
+                            item.style.background = 'white';
+                        });
+                        
+                        item.addEventListener('click', () => {
+                            searchBar.value = suggestion.displayName || suggestion.name;
+                            currentSuggestions.remove();
+                            currentSuggestions = null;
+                            document.getElementById('search-form').dispatchEvent(new Event('submit'));
+                        });
+                        
+                        currentSuggestions.appendChild(item);
+                    });
+                    
+                    document.getElementById('search-form').appendChild(currentSuggestions);
+                }
+            } catch (error) {
+                console.error('Suggestions error:', error);
+            }
+        }, 200); // 200ms debounce
+    });
+    
+    // Hide suggestions when clicking outside or pressing Escape
+    document.addEventListener('click', (e) => {
+        if (currentSuggestions && !document.getElementById('search-form').contains(e.target)) {
+            currentSuggestions.remove();
+            currentSuggestions = null;
+        }
+    });
+    
+    searchBar.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && currentSuggestions) {
+            currentSuggestions.remove();
+            currentSuggestions = null;
+            searchBar.blur();
+        }
+    });
+}
 
-// Initialize autocomplete when DOM is ready
-document.addEventListener('DOMContentLoaded', () => {
-    addSearchAutocomplete();
-});
+// Helper function to highlight matching text
+function highlightMatch(text, query) {
+    if (!query) return text;
+    
+    const regex = new RegExp(`(${query.split(' ').join('|')})`, 'gi');
+    return text.replace(regex, '<strong style="color: #2e7d32;">$1</strong>');
+}
+
+
 
             // Panel toggles
             document.getElementById('toggle-options').addEventListener('click', () => togglePanel('options-panel'));
