@@ -474,6 +474,23 @@
         </form>
         <div id="other-functions">Report Issues</div>
         <div id="view-live-feeds">View Live Feeds</div>
+        <button id="clear-search" onclick="clearSearchMarkers()" style="
+            position: absolute;
+            top: 120px;
+            right: 20px;
+            padding: 10px 20px;
+            font-size: 14px;
+            background: #ffffff;
+            color: #d32f2f;
+            border: 1px solid #d32f2f;
+            border-radius: 20px;
+            cursor: pointer;
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+            z-index: 10;
+            transition: all 0.3s ease;
+            display: none;
+        " onmouseover="this.style.background='#d32f2f'; this.style.color='white';" 
+           onmouseout="this.style.background='#ffffff'; this.style.color='#d32f2f';">Clear Search</button>
         <div id="function-menu">
             <button id="report-issue">Report Hazard/Incident</button>
         </div>
@@ -1062,6 +1079,8 @@
 // Keep track of search markers to remove them
 let searchMarkers = [];
 
+
+
 document.getElementById('search-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const searchText = document.getElementById('search-bar').value.trim();
@@ -1106,6 +1125,7 @@ document.getElementById('search-form').addEventListener('submit', async (e) => {
             });
             
             searchMarkers.push(marker); // Track for removal
+            showClearButton(); // Show the clear button when we have search markers
             
             // Show info window
             const infoWindow = new google.maps.InfoWindow({
@@ -1128,6 +1148,9 @@ document.getElementById('search-form').addEventListener('submit', async (e) => {
             
             // Show success message
             showSearchMessage(`Found: ${firstResult.displayName || firstResult.name}`, 'success');
+            
+            // Clear search bar
+            document.getElementById('search-bar').value = '';
             
         } else if (result.useGeocoding) {
             // Fallback to Google Maps Geocoding
@@ -1158,6 +1181,7 @@ document.getElementById('search-form').addEventListener('submit', async (e) => {
                     });
                     
                     searchMarkers.push(marker); // Track for removal
+                    showClearButton(); // Show the clear button when we have search markers
                     
                     // Show info window
                     const infoWindow = new google.maps.InfoWindow({
@@ -1178,6 +1202,9 @@ document.getElementById('search-form').addEventListener('submit', async (e) => {
                     infoWindow.open(map, marker);
                     
                     showSearchMessage(`Found: ${results[0].formatted_address}`, 'success');
+                    
+                    // Clear search bar
+                    document.getElementById('search-bar').value = '';
                 } else {
                     console.error('Geocoding failed:', status);
                     showSearchMessage(`Location "${searchText}" not found`, 'error');
@@ -1247,90 +1274,90 @@ function showSearchMessage(message, type = 'info') {
     }, 5000);
 }
 
-// Optional: Add search suggestions/autocomplete
-function addSearchAutocomplete() {
-    const searchBar = document.getElementById('search-bar');
-    let currentSuggestions = null;
+// Button to clear search markers - ENHANCED VERSION
+function clearSearchMarkers() {
+    searchMarkers.forEach(marker => marker.setMap(null));
+    searchMarkers = [];
     
-    searchBar.addEventListener('input', async (e) => {
-        const query = e.target.value.trim();
-        
-        // Remove existing suggestions
-        if (currentSuggestions) {
-            currentSuggestions.remove();
-            currentSuggestions = null;
-        }
-        
-        if (query.length < 2) return;
-        
-        try {
-            const response = await fetch(`/api/search/suggestions?q=${encodeURIComponent(query)}`);
-            const result = await response.json();
-            
-            if (result.success && result.suggestions.length > 0) {
-                // Create suggestions dropdown
-                currentSuggestions = document.createElement('div');
-                currentSuggestions.style.cssText = `
-                    position: absolute;
-                    top: 100%;
-                    left: 0;
-                    right: 0;
-                    background: white;
-                    border: 1px solid #ddd;
-                    border-top: none;
-                    border-radius: 0 0 8px 8px;
-                    box-shadow: 0 2px 6px rgba(0,0,0,0.1);
-                    z-index: 20;
-                    max-height: 200px;
-                    overflow-y: auto;
-                `;
-                
-                result.suggestions.forEach(suggestion => {
-                    const item = document.createElement('div');
-                    item.style.cssText = `
-                        padding: 8px 15px;
-                        cursor: pointer;
-                        border-bottom: 1px solid #eee;
-                        transition: background 0.2s;
-                    `;
-                    item.innerHTML = `
-                        <div style="font-weight: 500;">${suggestion.name}</div>
-                        <div style="font-size: 12px; color: #666;">${suggestion.type}</div>
-                    `;
-                    
-                    item.addEventListener('mouseenter', () => {
-                        item.style.background = '#f5f5f5';
-                    });
-                    
-                    item.addEventListener('mouseleave', () => {
-                        item.style.background = 'white';
-                    });
-                    
-                    item.addEventListener('click', () => {
-                        searchBar.value = suggestion.name;
-                        currentSuggestions.remove();
-                        currentSuggestions = null;
-                        document.getElementById('search-form').dispatchEvent(new Event('submit'));
-                    });
-                    
-                    currentSuggestions.appendChild(item);
-                });
-                
-                document.getElementById('search-form').appendChild(currentSuggestions);
-            }
-        } catch (error) {
-            console.error('Suggestions error:', error);
-        }
-    });
+    // Hide the clear button
+    const clearButton = document.getElementById('clear-search');
+    if (clearButton) {
+        clearButton.style.display = 'none';
+    }
     
-    // Hide suggestions when clicking outside
-    document.addEventListener('click', (e) => {
-        if (currentSuggestions && !document.getElementById('search-form').contains(e.target)) {
-            currentSuggestions.remove();
-            currentSuggestions = null;
-        }
-    });
+    // Show message
+    showSearchMessage('Search markers cleared', 'info');
 }
+
+// Show clear button when markers are added
+function showClearButton() {
+    const clearButton = document.getElementById('clear-search');
+    if (clearButton && searchMarkers.length > 0) {
+        clearButton.style.display = 'block';
+    }
+}
+
+// Add this to window for global access
+window.clearSearchMarkers = clearSearchMarkers;
+
+// Add clear button functionality (you can add this button to your HTML if needed)
+window.clearSearchMarkers = clearSearchMarkers;
+
+// Enhanced search message function
+function showSearchMessage(message, type = 'info') {
+    // Remove existing message if any
+    const existingMessage = document.getElementById('search-message');
+    if (existingMessage) {
+        existingMessage.remove();
+    }
+    
+    // Create message element with better styling
+    const messageDiv = document.createElement('div');
+    messageDiv.id = 'search-message';
+    messageDiv.style.cssText = `
+        position: absolute;
+        top: 70px;
+        left: 20px;
+        background: ${type === 'success' ? '#4caf50' : type === 'error' ? '#f44336' : '#2196f3'};
+        color: white;
+        padding: 12px 16px;
+        border-radius: 6px;
+        z-index: 15;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+        max-width: 350px;
+        font-size: 14px;
+        font-weight: 500;
+        animation: slideInFadeOut 5s ease-in-out;
+        backdrop-filter: blur(10px);
+    `;
+    messageDiv.textContent = message;
+    
+    // Add enhanced animation
+    if (!document.getElementById('search-animations')) {
+        const style = document.createElement('style');
+        style.id = 'search-animations';
+        style.textContent = `
+            @keyframes slideInFadeOut {
+                0% { opacity: 0; transform: translateX(-20px); }
+                15%, 85% { opacity: 1; transform: translateX(0); }
+                100% { opacity: 0; transform: translateX(-20px); }
+            }
+        `;
+        document.head.appendChild(style);
+    }
+    
+    // Add to page
+    document.getElementById('map-container').appendChild(messageDiv);
+    
+    // Auto remove after 5 seconds
+    setTimeout(() => {
+        if (messageDiv.parentNode) {
+            messageDiv.remove();
+        }
+    }, 5000);
+}
+
+
 // Enhanced autocomplete with better real-time suggestions
 function addSearchAutocomplete() {
     const searchBar = document.getElementById('search-bar');
@@ -1357,7 +1384,14 @@ function addSearchAutocomplete() {
         debounceTimer = setTimeout(async () => {
             try {
                 const response = await fetch(`/api/search/suggestions?q=${encodeURIComponent(query)}`);
+                
+                if (!response.ok) {
+                    console.error('Suggestions request failed:', response.status);
+                    return;
+                }
+                
                 const result = await response.json();
+                console.log('Suggestions result:', result);
                 
                 if (result.success && result.suggestions.length > 0) {
                     // Create suggestions dropdown
@@ -1420,17 +1454,23 @@ function addSearchAutocomplete() {
                         currentSuggestions.appendChild(item);
                     });
                     
-                    document.getElementById('search-form').appendChild(currentSuggestions);
+                    // Position the suggestions relative to search form
+                    const searchForm = document.getElementById('search-form');
+                    searchForm.style.position = 'relative';
+                    searchForm.appendChild(currentSuggestions);
+                } else {
+                    console.log('No suggestions found for:', query);
                 }
             } catch (error) {
                 console.error('Suggestions error:', error);
             }
-        }, 200); // 200ms debounce
+        }, 300); // 300ms debounce - increased to reduce server load
     });
     
     // Hide suggestions when clicking outside or pressing Escape
     document.addEventListener('click', (e) => {
-        if (currentSuggestions && !document.getElementById('search-form').contains(e.target)) {
+        const searchForm = document.getElementById('search-form');
+        if (currentSuggestions && !searchForm.contains(e.target)) {
             currentSuggestions.remove();
             currentSuggestions = null;
         }
@@ -1442,7 +1482,56 @@ function addSearchAutocomplete() {
             currentSuggestions = null;
             searchBar.blur();
         }
+        
+        // Handle arrow key navigation
+        if (currentSuggestions && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
+            e.preventDefault();
+            const items = currentSuggestions.querySelectorAll('div[style*="cursor: pointer"]');
+            let currentIndex = -1;
+            
+            // Find currently selected item
+            items.forEach((item, index) => {
+                if (item.style.background === 'rgb(248, 249, 250)') {
+                    currentIndex = index;
+                    item.style.background = 'white';
+                }
+            });
+            
+            // Move selection
+            if (e.key === 'ArrowDown') {
+                currentIndex = currentIndex < items.length - 1 ? currentIndex + 1 : 0;
+            } else {
+                currentIndex = currentIndex > 0 ? currentIndex - 1 : items.length - 1;
+            }
+            
+            // Highlight new selection
+            if (items[currentIndex]) {
+                items[currentIndex].style.background = '#f8f9fa';
+                items[currentIndex].scrollIntoView({ block: 'nearest' });
+            }
+        }
+        
+        // Handle Enter key
+        if (e.key === 'Enter' && currentSuggestions) {
+            const selectedItem = currentSuggestions.querySelector('div[style*="rgb(248, 249, 250)"]');
+            if (selectedItem) {
+                e.preventDefault();
+                selectedItem.click();
+            }
+        }
     });
+}
+
+// Helper function to highlight matching text
+function highlightMatch(text, query) {
+    if (!query) return text;
+    
+    try {
+        const regex = new RegExp(`(${query.split(' ').filter(word => word.length > 0).join('|')})`, 'gi');
+        return text.replace(regex, '<strong style="color: #2e7d32;">$1</strong>');
+    } catch (e) {
+        return text; // Return original text if regex fails
+    }
 }
 
 // Helper function to highlight matching text

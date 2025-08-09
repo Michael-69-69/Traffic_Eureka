@@ -5,7 +5,7 @@ const hazardRoutes = require('./routes/hazards');
 const incidentRoutes = require('./routes/incidents');
 const searchRoutes = require('./routes/search');
 const controlRoutes = require('./routes/controls');
-const cameraRoutes = require('./routes/cameras'); // Updated to use cameras.js
+const cameraRoutes = require('./routes/cameras');
 const multer = require('multer');
 
 // Configure multer for file uploads
@@ -35,10 +35,15 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(logger);
 
-// Custom validation middleware for hazards and incidents
+// Custom validation middleware for hazards and incidents - FIXED
 const validateHazardIncident = (req, res, next) => {
     console.log('Validation middleware - Request body:', req.body);
     console.log('Validation middleware - Files:', req.file);
+    
+    // Skip validation for GET requests
+    if (req.method === 'GET') {
+        return next();
+    }
     
     const { lat, lng, timestamp } = req.body;
     
@@ -101,34 +106,44 @@ const validateHazardIncident = (req, res, next) => {
     next();
 };
 
-// Routes with proper error handling
+// Routes with proper error handling - FIXED
 app.use('/api/hazards', (req, res, next) => {
-    const uploadMiddleware = upload.single('image');
-    uploadMiddleware(req, res, (err) => {
-        if (err) {
-            console.error('Upload error:', err);
-            return res.status(400).json({
-                success: false,
-                message: 'File upload error: ' + err.message
-            });
-        }
-        next();
-    });
-}, validateHazardIncident, hazardRoutes);
+    // Only apply upload middleware for POST requests
+    if (req.method === 'POST') {
+        const uploadMiddleware = upload.single('image');
+        uploadMiddleware(req, res, (err) => {
+            if (err) {
+                console.error('Upload error:', err);
+                return res.status(400).json({
+                    success: false,
+                    message: 'File upload error: ' + err.message
+                });
+            }
+            validateHazardIncident(req, res, next);
+        });
+    } else {
+        validateHazardIncident(req, res, next);
+    }
+}, hazardRoutes);
 
 app.use('/api/incidents', (req, res, next) => {
-    const uploadMiddleware = upload.single('image');
-    uploadMiddleware(req, res, (err) => {
-        if (err) {
-            console.error('Upload error:', err);
-            return res.status(400).json({
-                success: false,
-                message: 'File upload error: ' + err.message
-            });
-        }
-        next();
-    });
-}, validateHazardIncident, incidentRoutes);
+    // Only apply upload middleware for POST requests
+    if (req.method === 'POST') {
+        const uploadMiddleware = upload.single('image');
+        uploadMiddleware(req, res, (err) => {
+            if (err) {
+                console.error('Upload error:', err);
+                return res.status(400).json({
+                    success: false,
+                    message: 'File upload error: ' + err.message
+                });
+            }
+            validateHazardIncident(req, res, next);
+        });
+    } else {
+        validateHazardIncident(req, res, next);
+    }
+}, incidentRoutes);
 
 app.use('/api/search', searchRoutes);
 app.use('/api/controls', controlRoutes);
