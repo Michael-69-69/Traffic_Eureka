@@ -1254,21 +1254,41 @@ function showSearchMessage(message, type = 'info') {
     }, 5000);
 }
 
-// Enhanced autocomplete with better real-time suggestions
 function addSearchAutocomplete() {
     const searchBar = document.getElementById('search-bar');
+    const searchForm = document.getElementById('search-form');
     let currentSuggestions = null;
     let debounceTimer = null;
+    
+    // Fallback suggestions from your vietnamPlaces data
+    const fallbackSuggestions = [
+        { name: 'district 1', displayName: 'District 1', type: 'district' },
+        { name: 'district 3', displayName: 'District 3', type: 'district' },
+        { name: 'binh thanh', displayName: 'Binh Thanh District', type: 'district' },
+        { name: 'ben thanh market', displayName: 'Ben Thanh Market', type: 'landmark' },
+        { name: 'nguyen hue', displayName: 'Nguyen Hue Street', type: 'street' },
+        { name: 'le loi', displayName: 'Le Loi Street', type: 'street' },
+        { name: 'dong khoi', displayName: 'Dong Khoi Street', type: 'street' },
+        { name: 'reunification palace', displayName: 'Reunification Palace', type: 'landmark' },
+        { name: 'notre dame cathedral', displayName: 'Notre Dame Cathedral', type: 'landmark' },
+        { name: 'bitexco tower', displayName: 'Bitexco Financial Tower', type: 'landmark' }
+    ];
+    
+    function filterSuggestions(query) {
+        const normalizedQuery = query.toLowerCase().trim();
+        return fallbackSuggestions.filter(item => 
+            item.name.includes(normalizedQuery) || 
+            item.displayName.toLowerCase().includes(normalizedQuery)
+        ).slice(0, 6);
+    }
     
     searchBar.addEventListener('input', async (e) => {
         const query = e.target.value.trim();
         
-        // Clear existing timer
         if (debounceTimer) {
             clearTimeout(debounceTimer);
         }
         
-        // Remove existing suggestions
         if (currentSuggestions) {
             currentSuggestions.remove();
             currentSuggestions = null;
@@ -1276,158 +1296,122 @@ function addSearchAutocomplete() {
         
         if (query.length < 1) return;
         
-        // Debounce the search to avoid too many requests
         debounceTimer = setTimeout(async () => {
+            let suggestions = [];
+            
             try {
                 const response = await fetch(`/api/search/suggestions?q=${encodeURIComponent(query)}`);
                 
-                if (!response.ok) {
-                    console.error('Suggestions request failed:', response.status);
-                    return;
-                }
-                
-                const result = await response.json();
-                console.log('Suggestions result:', result);
-                
-                if (result.success && result.suggestions.length > 0) {
-                    // Create suggestions dropdown
-                    currentSuggestions = document.createElement('div');
-                    currentSuggestions.style.cssText = `
-                        position: absolute;
-                        top: 100%;
-                        left: 0;
-                        right: 0;
-                        background: white;
-                        border: 1px solid #ddd;
-                        border-top: none;
-                        border-radius: 0 0 8px 8px;
-                        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-                        z-index: 20;
-                        max-height: 250px;
-                        overflow-y: auto;
-                    `;
+                if (response.ok) {
+                    const result = await response.json();
                     
-                    result.suggestions.forEach((suggestion, index) => {
-                        const item = document.createElement('div');
-                        item.style.cssText = `
-                            padding: 12px 15px;
-                            cursor: pointer;
-                            border-bottom: 1px solid #eee;
-                            transition: all 0.2s ease;
-                            display: flex;
-                            justify-content: space-between;
-                            align-items: center;
-                        `;
-                        
-                        // Highlight matching text
-                        const highlightedName = highlightMatch(suggestion.displayName || suggestion.name, query);
-                        
-                        item.innerHTML = `
-                            <div>
-                                <div style="font-weight: 500; color: #333;">${highlightedName}</div>
-                                <div style="font-size: 12px; color: #666; text-transform: capitalize;">${suggestion.type}</div>
-                            </div>
-                            <div style="font-size: 11px; color: #999; background: #f5f5f5; padding: 2px 6px; border-radius: 10px;">
-                                ${suggestion.matchType || 'match'}
-                            </div>
-                        `;
-                        
-                        item.addEventListener('mouseenter', () => {
-                            item.style.background = '#f8f9fa';
-                        });
-                        
-                        item.addEventListener('mouseleave', () => {
-                            item.style.background = 'white';
-                        });
-                        
-                        item.addEventListener('click', () => {
-                            searchBar.value = suggestion.displayName || suggestion.name;
-                            currentSuggestions.remove();
-                            currentSuggestions = null;
-                            document.getElementById('search-form').dispatchEvent(new Event('submit'));
-                        });
-                        
-                        currentSuggestions.appendChild(item);
-                    });
-                    
-                    // Position the suggestions relative to search form
-                    const searchForm = document.getElementById('search-form');
-                    searchForm.style.position = 'relative';
-                    searchForm.appendChild(currentSuggestions);
+                    if (result.success && result.suggestions && result.suggestions.length > 0) {
+                        suggestions = result.suggestions;
+                    } else {
+                        suggestions = filterSuggestions(query);
+                    }
                 } else {
-                    console.log('No suggestions found for:', query);
+                    suggestions = filterSuggestions(query);
                 }
             } catch (error) {
-                console.error('Suggestions error:', error);
+                console.error('Error fetching suggestions:', error);
+                suggestions = filterSuggestions(query);
             }
-        }, 300); // 300ms debounce - increased to reduce server load
+            
+            if (suggestions.length > 0) {
+                // Create suggestions dropdown - FIXED POSITIONING
+                currentSuggestions = document.createElement('div');
+                currentSuggestions.className = 'search-suggestions';
+                currentSuggestions.style.cssText = `
+                    position: absolute;
+                    top: calc(100% + 2px);
+                    left: 0;
+                    right: 0;
+                    background: white;
+                    border: 1px solid #ddd;
+                    border-radius: 8px;
+                    box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+                    z-index: 1000;
+                    max-height: 300px;
+                    overflow-y: auto;
+                    margin: 0;
+                    width: 100%;
+                `;
+                
+                suggestions.forEach((suggestion, index) => {
+                    const item = document.createElement('div');
+                    item.className = 'suggestion-item';
+                    item.style.cssText = `
+                        padding: 12px 15px;
+                        cursor: pointer;
+                        border-bottom: ${index === suggestions.length - 1 ? 'none' : '1px solid #eee'};
+                        transition: background-color 0.2s ease;
+                        font-size: 14px;
+                        color: #333;
+                    `;
+                    
+                    item.innerHTML = `
+                        <div style="font-weight: 500;">${suggestion.displayName || suggestion.name}</div>
+                        <div style="font-size: 12px; color: #666; margin-top: 2px;">${suggestion.type}</div>
+                    `;
+                    
+                    item.addEventListener('mouseenter', () => {
+                        item.style.backgroundColor = '#f8f9fa';
+                    });
+                    
+                    item.addEventListener('mouseleave', () => {
+                        item.style.backgroundColor = 'white';
+                    });
+                    
+                    item.addEventListener('click', (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        
+                        searchBar.value = suggestion.displayName || suggestion.name;
+                        
+                        if (currentSuggestions) {
+                            currentSuggestions.remove();
+                            currentSuggestions = null;
+                        }
+                        
+                        // Trigger search
+                        const submitEvent = new Event('submit', { bubbles: true, cancelable: true });
+                        document.getElementById('search-form').dispatchEvent(submitEvent);
+                    });
+                    
+                    currentSuggestions.appendChild(item);
+                });
+                
+                // Append to map container, not search form
+                document.getElementById('map-container').appendChild(currentSuggestions);
+                
+                // Position relative to search form
+                const searchFormRect = searchForm.getBoundingClientRect();
+                currentSuggestions.style.position = 'absolute';
+                currentSuggestions.style.left = searchFormRect.left + 'px';
+                currentSuggestions.style.top = (searchFormRect.bottom + 2) + 'px';
+                currentSuggestions.style.width = searchFormRect.width + 'px';
+            }
+        }, 250);
     });
     
-    // Hide suggestions when clicking outside or pressing Escape
+    // Hide suggestions when clicking outside
     document.addEventListener('click', (e) => {
-        const searchForm = document.getElementById('search-form');
-        if (currentSuggestions && !searchForm.contains(e.target)) {
+        if (currentSuggestions && !searchForm.contains(e.target) && !currentSuggestions.contains(e.target)) {
             currentSuggestions.remove();
             currentSuggestions = null;
         }
     });
     
-    searchBar.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape' && currentSuggestions) {
-            currentSuggestions.remove();
-            currentSuggestions = null;
-            searchBar.blur();
-        }
-        
-        // Handle arrow key navigation
-        if (currentSuggestions && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
-            e.preventDefault();
-            const items = currentSuggestions.querySelectorAll('div[style*="cursor: pointer"]');
-            let currentIndex = -1;
-            
-            // Find currently selected item
-            items.forEach((item, index) => {
-                if (item.style.background === 'rgb(248, 249, 250)') {
-                    currentIndex = index;
-                    item.style.background = 'white';
-                }
-            });
-            
-            // Move selection
-            if (e.key === 'ArrowDown') {
-                currentIndex = currentIndex < items.length - 1 ? currentIndex + 1 : 0;
-            } else {
-                currentIndex = currentIndex > 0 ? currentIndex - 1 : items.length - 1;
+    // Clear suggestions when search bar loses focus
+    searchBar.addEventListener('blur', () => {
+        setTimeout(() => {
+            if (currentSuggestions && !currentSuggestions.matches(':hover')) {
+                currentSuggestions.remove();
+                currentSuggestions = null;
             }
-            
-            // Highlight new selection
-            if (items[currentIndex]) {
-                items[currentIndex].style.background = '#f8f9fa';
-                items[currentIndex].scrollIntoView({ block: 'nearest' });
-            }
-        }
-        
-        // Handle Enter key
-        if (e.key === 'Enter' && currentSuggestions) {
-            const selectedItem = currentSuggestions.querySelector('div[style*="rgb(248, 249, 250)"]');
-            if (selectedItem) {
-                e.preventDefault();
-                selectedItem.click();
-            }
-        }
+        }, 200);
     });
-}
-
-// Helper function to highlight matching text
-function highlightMatch(text, query) {
-    if (!query) return text;
-    
-    try {
-        const regex = new RegExp(`(${query.split(' ').filter(word => word.length > 0).join('|')})`, 'gi');
-        return text.replace(regex, '<strong style="color: #2e7d32;">$1</strong>');
-    } catch (e) {
-        return text; // Return original text if regex fails
-    }
 }
 
 document.addEventListener('DOMContentLoaded', function() {
