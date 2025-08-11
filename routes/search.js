@@ -1,5 +1,16 @@
 const express = require('express');
+const axios = require('axios');
 const router = express.Router();
+
+// Google Geocoding API Configuration
+const GOOGLE_GEOCODING_API_KEY = 'AIzaSyC6pWyasaBezX1PMIsc14ClB1R2qDdcOjY';
+const GOOGLE_GEOCODING_BASE_URL = 'https://maps.googleapis.com/maps/api/geocode/json';
+
+// Ho Chi Minh City bounds for filtering results
+const HCMC_BOUNDS = {
+    northeast: { lat: 11.2000, lng: 107.1000 },
+    southwest: { lat: 10.3000, lng: 106.3000 }
+};
 
 // Function to normalize Vietnamese diacritics for search
 function normalizeVietnamese(str) {
@@ -161,6 +172,118 @@ const vietnamPlaces = {
     'nga ba dien bien phu': { lat: 10.797100, lng: 106.706700, type: 'intersection', fullName: 'Dien Bien Phu Three-way Intersection', vietnameseName: 'Ngã ba Điện Biên Phủ' }
 };
 
+// Function to check if coordinates are within Ho Chi Minh City bounds
+function isWithinHCMC(lat, lng) {
+    return lat >= HCMC_BOUNDS.southwest.lat && 
+           lat <= HCMC_BOUNDS.northeast.lat && 
+           lng >= HCMC_BOUNDS.southwest.lng && 
+           lng <= HCMC_BOUNDS.northeast.lng;
+}
+
+// Google Geocoding API function with enhanced debugging
+async function geocodeAddress(query) {
+    try {
+        console.log('🔍 Starting geocoding for query:', query);
+        
+        // Add Ho Chi Minh City context to improve results
+        const enhancedQuery = `${query}, Ho Chi Minh City, Vietnam`;
+        console.log('📍 Enhanced query:', enhancedQuery);
+        
+        const requestParams = {
+            address: enhancedQuery,
+            key: GOOGLE_GEOCODING_API_KEY,
+            region: 'vn',
+            language: 'vi',
+            bounds: `${HCMC_BOUNDS.southwest.lat},${HCMC_BOUNDS.southwest.lng}|${HCMC_BOUNDS.northeast.lat},${HCMC_BOUNDS.northeast.lng}`
+        };
+        
+        console.log('📡 Making request to:', GOOGLE_GEOCODING_BASE_URL);
+        console.log('📋 Request params:', requestParams);
+
+        const response = await axios.get(GOOGLE_GEOCODING_BASE_URL, {
+            params: requestParams,
+            timeout: 10000 // 10 second timeout
+        });
+
+        console.log('✅ API Response Status:', response.data.status);
+        console.log('📊 Raw response:', JSON.stringify(response.data, null, 2));
+
+        if (response.data.status === 'OK' && response.data.results.length > 0) {
+            console.log(`🎯 Found ${response.data.results.length} raw results`);
+            
+            const results = response.data.results
+                .filter(result => {
+                    const location = result.geometry.location;
+                    const isInHCMC = isWithinHCMC(location.lat, location.lng);
+                    console.log(`📍 Result: ${result.formatted_address}, Coords: ${location.lat},${location.lng}, In HCMC: ${isInHCMC}`);
+                    return isInHCMC;
+                })
+                .map(result => {
+                    const location = result.geometry.location;
+                    const addressComponents = result.address_components;
+                    
+                    let district = '';
+                    let area = '';
+                    
+                    addressComponents.forEach(component => {
+                        if (component.types.includes('sublocality') || 
+                            component.types.includes('administrative_area_level_2')) {
+                            district = component.long_name;
+                        }
+                        if (component.types.includes('neighborhood') || 
+                            component.types.includes('sublocality_level_1')) {
+                            area = component.long_name;
+                        }
+                    });
+
+                    let type = 'place';
+                    if (result.types.includes('route')) {
+                        type = 'street';
+                    } else if (result.types.includes('establishment')) {
+                        type = 'landmark';
+                    } else if (result.types.includes('sublocality')) {
+                        type = 'area';
+                    } else if (result.types.includes('administrative_area_level_2')) {
+                        type = 'district';
+                    }
+
+                    return {
+                        name: result.name || result.formatted_address,
+                        displayName: result.formatted_address,
+                        lat: location.lat,
+                        lng: location.lng,
+                        type: type,
+                        score: 70,
+                        matchType: 'geocoding',
+                        fullAddress: result.formatted_address,
+                        placeId: result.place_id,
+                        district: district,
+                        area: area,
+                        source: 'google'
+                    };
+                });
+
+            console.log(`✨ Returning ${results.length} filtered results`);
+            return results;
+        } else if (response.data.status === 'ZERO_RESULTS') {
+            console.log('❌ No results found for query');
+            return [];
+        } else {
+            console.error('❌ API Error Status:', response.data.status);
+            console.error('❌ Error Message:', response.data.error_message);
+            return [];
+        }
+    } catch (error) {
+        console.error('💥 Geocoding API error details:');
+        console.error('- Error message:', error.message);
+        console.error('- Error code:', error.code);
+        console.error('- Response status:', error.response?.status);
+        console.error('- Response data:', error.response?.data);
+        console.error('- Full error:', error);
+        return [];
+    }
+}
+
 // Enhanced search function with support for Vietnamese diacritics
 function searchPlaces(query) {
     const searchTerm = normalizeVietnamese(query).trim();
@@ -209,7 +332,8 @@ function searchPlaces(query) {
                 type: placeData.type,
                 score: score,
                 matchType: matchType,
-                vietnameseName: placeData.vietnameseName
+                vietnameseName: placeData.vietnameseName,
+                source: 'local'
             });
         }
     });
@@ -280,8 +404,8 @@ function levenshteinDistance(str1, str2) {
     return matrix[str2.length][str1.length];
 }
 
-// Main search endpoint
-router.get('/', (req, res) => {
+// Main search endpoint with Google Geocoding priority
+router.get('/', async (req, res) => {
     const query = req.query.query;
 
     if (!query) {
@@ -293,63 +417,171 @@ router.get('/', (req, res) => {
 
     console.log('Search query:', query);
 
-    // Search in our enhanced HCMC database
-    const results = searchPlaces(query);
+    try {
+        // First, try Google Geocoding API (prioritized)
+        console.log('Trying Google Geocoding for:', query);
+        const geocodingResults = await geocodeAddress(query);
+        
+        // If we have good Google results, return them with minimal local mixing
+        if (geocodingResults.length > 0) {
+            // Only add local results if they're exact matches and Google has few results
+            let combinedResults = [...geocodingResults];
+            
+            if (geocodingResults.length < 3) {
+                const localResults = searchPlaces(query);
+                const exactLocalMatches = localResults.filter(result => result.score >= 90);
+                combinedResults = [...geocodingResults, ...exactLocalMatches];
+            }
+            
+            // Sort with Google results getting priority
+            combinedResults.sort((a, b) => {
+                // Google results always get higher priority
+                if (a.source === 'google' && b.source !== 'google') return -1;
+                if (b.source === 'google' && a.source !== 'google') return 1;
+                // Then sort by score
+                if (b.score !== a.score) return b.score - a.score;
+                return a.name.length - b.name.length;
+            });
 
-    // Limit results to top 10
-    const limitedResults = results.slice(0, 10);
+            const limitedResults = combinedResults.slice(0, 10);
+            
+            res.json({
+                success: true,
+                message: `Found ${limitedResults.length} result(s) for: ${query}`,
+                results: limitedResults,
+                searchTerm: query,
+                source: 'google-priority',
+                geocodingCount: geocodingResults.length
+            });
+            return;
+        }
 
-    if (limitedResults.length > 0) {
+        // Fallback to local results only if Google returns nothing
+        console.log('No Google results, falling back to local database');
+        const localResults = searchPlaces(query);
+        const limitedResults = localResults.slice(0, 10);
+        
+        if (limitedResults.length > 0) {
+            res.json({
+                success: true,
+                message: `Found ${limitedResults.length} local result(s) for: ${query} (Google had no results)`,
+                results: limitedResults,
+                searchTerm: query,
+                source: 'local-fallback'
+            });
+        } else {
+            res.json({
+                success: false,
+                message: `No results found for "${query}" in Ho Chi Minh City area`,
+                results: [],
+                searchTerm: query,
+                source: 'none'
+            });
+        }
+    } catch (error) {
+        console.error('Search error:', error);
+        
+        // Fallback to local results only on API error
+        const localResults = searchPlaces(query);
+        const limitedResults = localResults.slice(0, 10);
+        
         res.json({
             success: true,
-            message: `Found ${limitedResults.length} result(s) for: ${query}`,
+            message: `Found ${limitedResults.length} local result(s) for: ${query} (Google API error)`,
             results: limitedResults,
             searchTerm: query,
-            useGeocoding: false // Our database has results, don't use geocoding
-        });
-    } else {
-        // Fallback to Google Maps geocoding for places not in our database
-        res.json({
-            success: true,
-            message: `No local results found for "${query}". Trying Google Maps geocoding...`,
-            results: [],
-            useGeocoding: true,
-            searchTerm: query
+            source: 'local-error-fallback',
+            error: 'Geocoding service error'
         });
     }
 });
 
-// Enhanced suggestions endpoint for autocomplete
-router.get('/suggestions', (req, res) => {
+// Enhanced suggestions endpoint for autocomplete with geocoding
+router.get('/suggestions', async (req, res) => {
     const query = req.query.q;
 
-    if (!query || query.length < 1) {
+    if (!query || query.length < 2) {
         return res.json({ success: true, suggestions: [] });
     }
 
-    const searchTerm = query.trim();
-    const suggestions = [];
+    try {
+        const searchTerm = query.trim();
+        const suggestions = [];
 
-    // Get all matching places with scores
-    const matches = searchPlaces(searchTerm);
+        // Get local matches first
+        const localMatches = searchPlaces(searchTerm);
+        
+        // Add local suggestions
+        localMatches.slice(0, 6).forEach(match => {
+            suggestions.push({
+                name: match.name,
+                displayName: match.vietnameseName || match.displayName,
+                type: match.type,
+                score: match.score,
+                matchType: match.matchType,
+                vietnameseName: match.vietnameseName,
+                source: 'local'
+            });
+        });
 
-    // Convert to suggestion format
-    matches.slice(0, 8).forEach(match => { // Limit to 8 suggestions
-        suggestions.push({
+        // If we have few local suggestions and query is long enough, try geocoding
+        if (suggestions.length < 4 && query.length >= 4) {
+            try {
+                const geocodingResults = await geocodeAddress(query);
+                
+                geocodingResults.slice(0, 4).forEach(result => {
+                    // Avoid duplicates
+                    const isDuplicate = suggestions.some(s => 
+                        Math.abs(s.lat - result.lat) < 0.001 && 
+                        Math.abs(s.lng - result.lng) < 0.001
+                    );
+                    
+                    if (!isDuplicate) {
+                        suggestions.push({
+                            name: result.name,
+                            displayName: result.displayName,
+                            type: result.type,
+                            score: result.score,
+                            matchType: result.matchType,
+                            source: 'google'
+                        });
+                    }
+                });
+            } catch (error) {
+                console.log('Geocoding in suggestions failed:', error.message);
+            }
+        }
+
+        // Sort suggestions by score
+        suggestions.sort((a, b) => b.score - a.score);
+
+        res.json({
+            success: true,
+            suggestions: suggestions.slice(0, 8), // Limit to 8 suggestions
+            query: query
+        });
+    } catch (error) {
+        console.error('Suggestions error:', error);
+        
+        // Fallback to local suggestions only
+        const localMatches = searchPlaces(query.trim());
+        const suggestions = localMatches.slice(0, 6).map(match => ({
             name: match.name,
             displayName: match.vietnameseName || match.displayName,
             type: match.type,
             score: match.score,
             matchType: match.matchType,
-            vietnameseName: match.vietnameseName
-        });
-    });
+            vietnameseName: match.vietnameseName,
+            source: 'local'
+        }));
 
-    res.json({
-        success: true,
-        suggestions: suggestions,
-        query: query
-    });
+        res.json({
+            success: true,
+            suggestions: suggestions,
+            query: query,
+            error: 'Geocoding service unavailable'
+        });
+    }
 });
 
 // Additional endpoint for getting place details
@@ -376,15 +608,99 @@ router.get('/place/:placeName', (req, res) => {
                 lat: place.lat,
                 lng: place.lng,
                 type: place.type,
-                vietnameseName: place.vietnameseName
+                vietnameseName: place.vietnameseName,
+                source: 'local'
             }
         });
     } else {
         res.status(404).json({
             success: false,
-            message: 'Place not found'
+            message: 'Place not found in local database'
         });
     }
 });
 
+// Reverse geocoding endpoint (coordinates to address)
+router.get('/reverse', async (req, res) => {
+    const { lat, lng } = req.query;
+
+    if (!lat || !lng) {
+        return res.status(400).json({
+            success: false,
+            message: 'Latitude and longitude are required'
+        });
+    }
+
+    // Check if coordinates are within HCMC bounds
+    if (!isWithinHCMC(parseFloat(lat), parseFloat(lng))) {
+        return res.status(400).json({
+            success: false,
+            message: 'Coordinates are outside Ho Chi Minh City area'
+        });
+    }
+
+    try {
+        const response = await axios.get(GOOGLE_GEOCODING_BASE_URL, {
+            params: {
+                latlng: `${lat},${lng}`,
+                key: GOOGLE_GEOCODING_API_KEY,
+                language: 'vi',
+                result_type: 'street_address|route|sublocality|locality'
+            }
+        });
+
+        if (response.data.status === 'OK' && response.data.results.length > 0) {
+            const result = response.data.results[0];
+            
+            res.json({
+                success: true,
+                address: result.formatted_address,
+                components: result.address_components,
+                placeId: result.place_id,
+                types: result.types,
+                coordinates: { lat: parseFloat(lat), lng: parseFloat(lng) }
+            });
+        } else {
+            res.status(404).json({
+                success: false,
+                message: 'No address found for these coordinates'
+            });
+        }
+    } catch (error) {
+        console.error('Reverse geocoding error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Reverse geocoding service error'
+        });
+    }
+});
+// Test endpoint to check API key and connection
+router.get('/test-api', async (req, res) => {
+    try {
+        console.log('🧪 Testing Google Geocoding API...');
+        
+        const response = await axios.get(GOOGLE_GEOCODING_BASE_URL, {
+            params: {
+                address: 'Ben Thanh Market, Ho Chi Minh City',
+                key: GOOGLE_GEOCODING_API_KEY
+            },
+            timeout: 5000
+        });
+        
+        res.json({
+            success: true,
+            status: response.data.status,
+            apiKey: GOOGLE_GEOCODING_API_KEY.substring(0, 10) + '...',
+            results: response.data.results?.length || 0,
+            rawResponse: response.data
+        });
+    } catch (error) {
+        res.json({
+            success: false,
+            error: error.message,
+            apiKey: GOOGLE_GEOCODING_API_KEY.substring(0, 10) + '...',
+            details: error.response?.data
+        });
+    }
+});
 module.exports = router;
