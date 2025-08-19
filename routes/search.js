@@ -2,9 +2,10 @@ const express = require('express');
 const axios = require('axios');
 const router = express.Router();
 
-// Google Geocoding API Configuration
-const GOOGLE_GEOCODING_API_KEY = 'AIzaSyC6pWyasaBezX1PMIsc14ClB1R2qDdcOjY';
-const GOOGLE_GEOCODING_BASE_URL = 'https://maps.googleapis.com/maps/api/geocode/json';
+// Nominatim API Configuration (Free OpenStreetMap service)
+const NOMINATIM_BASE_URL = 'https://nominatim.openstreetmap.org';
+const REQUEST_DELAY = 1100; // Respect rate limit (1 req/sec)
+let lastRequestTime = Date.now() - 60000;
 
 // Ho Chi Minh City bounds for filtering results
 const HCMC_BOUNDS = {
@@ -12,165 +13,18 @@ const HCMC_BOUNDS = {
     southwest: { lat: 10.3000, lng: 106.3000 }
 };
 
-// Function to normalize Vietnamese diacritics for search
-function normalizeVietnamese(str) {
-    return str
-        .normalize('NFD') // Decompose diacritics
-        .replace(/[\u0300-\u036f]/g, '') // Remove diacritics
-        .replace(/đ/g, 'd')
-        .replace(/Đ/g, 'D')
-        .toLowerCase();
+// Rate limiting function
+async function enforceRateLimit() {
+    const now = Date.now();
+    const timeSinceLastRequest = now - lastRequestTime;
+
+    if (timeSinceLastRequest < REQUEST_DELAY) {
+        const waitTime = REQUEST_DELAY - timeSinceLastRequest;
+        await new Promise(resolve => setTimeout(resolve, waitTime));
+    }
+
+    lastRequestTime = Date.now();
 }
-
-// Enhanced Ho Chi Minh City places database with accurate coordinates and Vietnamese names
-const vietnamPlaces = {
-    // Districts in HCMC
-    'district 1': { lat: 10.774389, lng: 106.699172, type: 'district', fullName: 'District 1, Ho Chi Minh City', vietnameseName: 'Quận 1' },
-    'district 2': { lat: 10.803003, lng: 106.751150, type: 'district', fullName: 'District 2, Ho Chi Minh City', vietnameseName: 'Quận 2' },
-    'district 3': { lat: 10.783139, lng: 106.686991, type: 'district', fullName: 'District 3, Ho Chi Minh City', vietnameseName: 'Quận 3' },
-    'district 4': { lat: 10.759068, lng: 106.704124, type: 'district', fullName: 'District 4, Ho Chi Minh City', vietnameseName: 'Quận 4' },
-    'district 5': { lat: 10.754181, lng: 106.663836, type: 'district', fullName: 'District 5, Ho Chi Minh City', vietnameseName: 'Quận 5' },
-    'district 6': { lat: 10.746947, lng: 106.634687, type: 'district', fullName: 'District 6, Ho Chi Minh City', vietnameseName: 'Quận 6' },
-    'district 7': { lat: 10.741638, lng: 106.714672, type: 'district', fullName: 'District 7, Ho Chi Minh City', vietnameseName: 'Quận 7' },
-    'district 8': { lat: 10.740370, lng: 106.665951, type: 'district', fullName: 'District 8, Ho Chi Minh City', vietnameseName: 'Quận 8' },
-    'district 10': { lat: 10.771151, lng: 106.669789, type: 'district', fullName: 'District 10, Ho Chi Minh City', vietnameseName: 'Quận 10' },
-    'district 11': { lat: 10.763052, lng: 106.643825, type: 'district', fullName: 'District 11, Ho Chi Minh City', vietnameseName: 'Quận 11' },
-    'district 12': { lat: 10.867123, lng: 106.641557, type: 'district', fullName: 'District 12, Ho Chi Minh City', vietnameseName: 'Quận 12' },
-    'binh thanh': { lat: 10.803993, lng: 106.695464, type: 'district', fullName: 'Binh Thanh District, Ho Chi Minh City', vietnameseName: 'Quận Bình Thạnh' },
-    'tan binh': { lat: 10.796291, lng: 106.668117, type: 'district', fullName: 'Tan Binh District, Ho Chi Minh City', vietnameseName: 'Quận Tân Bình' },
-    'tan phu': { lat: 10.791757, lng: 106.627304, type: 'district', fullName: 'Tan Phu District, Ho Chi Minh City', vietnameseName: 'Quận Tân Phú' },
-    'go vap': { lat: 10.839551, lng: 106.671028, type: 'district', fullName: 'Go Vap District, Ho Chi Minh City', vietnameseName: 'Quận Gò Vấp' },
-    'phu nhuan': { lat: 10.799148, lng: 106.677320, type: 'district', fullName: 'Phu Nhuan District, Ho Chi Minh City', vietnameseName: 'Quận Phú Nhuận' },
-    'thu duc': { lat: 10.852057, lng: 106.753987, type: 'district', fullName: 'Thu Duc City, Ho Chi Minh City', vietnameseName: 'Thành phố Thủ Đức' },
-
-    // Major Streets and Roads in HCMC
-    'nguyen hue': { lat: 10.774800, lng: 106.703500, type: 'street', fullName: 'Nguyen Hue Street, District 1', vietnameseName: 'Đường Nguyễn Huệ' },
-    'le loi': { lat: 10.773200, lng: 106.698700, type: 'street', fullName: 'Le Loi Street, District 1', vietnameseName: 'Đường Lê Lợi' },
-    'dong khoi': { lat: 10.777300, lng: 106.703100, type: 'street', fullName: 'Dong Khoi Street, District 1', vietnameseName: 'Đường Đồng Khởi' },
-    'tran hung dao': { lat: 10.759600, lng: 106.688200, type: 'street', fullName: 'Tran Hung Dao Street, District 1', vietnameseName: 'Đường Trần Hưng Đạo' },
-    'ly thai to': { lat: 10.782500, lng: 106.696300, type: 'street', fullName: 'Ly Thai To Street, District 3', vietnameseName: 'Đường Lý Thái Tổ' },
-    'ba thang hai': { lat: 10.771500, lng: 106.667800, type: 'street', fullName: 'Ba Thang Hai Street, District 10', vietnameseName: 'Đường Ba Tháng Hai' },
-    'su van hanh': { lat: 10.771800, lng: 106.669200, type: 'street', fullName: 'Su Van Hanh Street, District 10', vietnameseName: 'Đường Sư Vạn Hạnh' },
-    'cong hoa': { lat: 10.797200, lng: 106.655600, type: 'street', fullName: 'Cong Hoa Street, Tan Binh', vietnameseName: 'Đường Cộng Hòa' },
-    'nguyen thi minh khai': { lat: 10.787400, lng: 106.690500, type: 'street', fullName: 'Nguyen Thi Minh Khai Street, District 3', vietnameseName: 'Đường Nguyễn Thị Minh Khai' },
-    'ham nghi': { lat: 10.771900, lng: 106.700200, type: 'street', fullName: 'Ham Nghi Street, District 1', vietnameseName: 'Đường Hàm Nghi' },
-    'vo van tan': { lat: 10.782700, lng: 106.691200, type: 'street', fullName: 'Vo Van Tan Street, District 3', vietnameseName: 'Đường Võ Văn Tần' },
-    'nam ky khoi nghia': { lat: 10.785600, lng: 106.698800, type: 'street', fullName: 'Nam Ky Khoi Nghia Street, District 1', vietnameseName: 'Đường Nam Kỳ Khởi Nghĩa' },
-    'truong dinh': { lat: 10.781400, lng: 106.687500, type: 'street', fullName: 'Truong Dinh Street, District 3', vietnameseName: 'Đường Trương Định' },
-    'dien bien phu': { lat: 10.797100, lng: 106.706700, type: 'street', fullName: 'Dien Bien Phu Street, Binh Thanh', vietnameseName: 'Đường Điện Biên Phủ' },
-    'nguyen du': { lat: 10.779600, lng: 106.697800, type: 'street', fullName: 'Nguyen Du Street, District 1', vietnameseName: 'Đường Nguyễn Du' },
-    'vo thi sau': { lat: 10.788900, lng: 106.690100, type: 'street', fullName: 'Vo Thi Sau Street, District 3', vietnameseName: 'Đường Võ Thị Sáu' },
-    'cao thang': { lat: 10.783900, lng: 106.684700, type: 'street', fullName: 'Cao Thang Street, District 3', vietnameseName: 'Đường Cao Thắng' },
-    'bach dang': { lat: 10.802400, lng: 106.711800, type: 'street', fullName: 'Bach Dang Street, Binh Thanh', vietnameseName: 'Đường Bạch Đằng' },
-    'ton duc thang': { lat: 10.780800, lng: 106.706200, type: 'street', fullName: 'Ton Duc Thang Street, District 1', vietnameseName: 'Đường Tôn Đức Thắng' },
-    'hai ba trung': { lat: 10.789200, lng: 106.696400, type: 'street', fullName: 'Hai Ba Trung Street, District 1', vietnameseName: 'Đường Hai Bà Trưng' },
-    'pasteur': { lat: 10.785300, lng: 106.697900, type: 'street', fullName: 'Pasteur Street, District 1', vietnameseName: 'Đường Pasteur' },
-    'le thanh ton': { lat: 10.781900, lng: 106.702300, type: 'street', fullName: 'Le Thanh Ton Street, District 1', vietnameseName: 'Đường Lê Thánh Tôn' },
-    'mac thi buoi': { lat: 10.778900, lng: 106.701500, type: 'street', fullName: 'Mac Thi Buoi Street, District 1', vietnameseName: 'Đường Mạc Thị Bưởi' },
-    'nguyen an ninh': { lat: 10.771600, lng: 106.697600, type: 'street', fullName: 'Nguyen An Ninh Street, District 1', vietnameseName: 'Đường Nguyễn An Ninh' },
-    'le van sy': { lat: 10.798400, lng: 106.672100, type: 'street', fullName: 'Le Van Sy Street, Phu Nhuan', vietnameseName: 'Đường Lê Văn Sỹ' },
-    'phan xich long': { lat: 10.802600, lng: 106.683700, type: 'street', fullName: 'Phan Xich Long Street, Phu Nhuan', vietnameseName: 'Đường Phan Xích Long' },
-    'cmt8': { lat: 10.785100, lng: 106.672300, type: 'street', fullName: 'Cach Mang Thang Tam Street, District 3', vietnameseName: 'Đường Cách Mạng Tháng Tám' },
-    'cach mang thang tam': { lat: 10.785100, lng: 106.672300, type: 'street', fullName: 'Cach Mang Thang Tam Street, District 3', vietnameseName: 'Đường Cách Mạng Tháng Tám' },
-    'nguyen dinh chieu': { lat: 10.786900, lng: 106.689400, type: 'street', fullName: 'Nguyen Dinh Chieu Street, District 3', vietnameseName: 'Đường Nguyễn Đình Chiểu' },
-    'vo van kiet': { lat: 10.747200, lng: 106.696800, type: 'street', fullName: 'Vo Van Kiet Boulevard, District 1', vietnameseName: 'Đại lộ Võ Văn Kiệt' },
-    'nguyen trai': { lat: 10.756100, lng: 106.670400, type: 'street', fullName: 'Nguyen Trai Street, District 5', vietnameseName: 'Đường Nguyễn Trãi' },
-    'tran phu': { lat: 10.754600, lng: 106.664800, type: 'street', fullName: 'Tran Phu Street, District 5', vietnameseName: 'Đường Trần Phú' },
-    'an duong vuong': { lat: 10.753200, lng: 106.650100, type: 'street', fullName: 'An Duong Vuong Street, District 5', vietnameseName: 'Đường An Dương Vương' },
-    'pham ngu lao': { lat: 10.768100, lng: 106.693200, type: 'street', fullName: 'Pham Ngu Lao Street, District 1', vietnameseName: 'Đường Phạm Ngũ Lão' },
-    'de tham': { lat: 10.767800, lng: 106.692900, type: 'street', fullName: 'De Tham Street, District 1', vietnameseName: 'Đường Đề Thám' },
-    'bui vien': { lat: 10.767400, lng: 106.693100, type: 'street', fullName: 'Bui Vien Street, District 1', vietnameseName: 'Đường Bùi Viện' },
-    'xuan thuy': { lat: 10.804300, lng: 106.735600, type: 'street', fullName: 'Xuan Thuy Street, Thu Duc', vietnameseName: 'Đường Xuân Thủy' },
-    'vo nguyen giap': { lat: 10.841900, lng: 106.805400, type: 'street', fullName: 'Vo Nguyen Giap Street, Thu Duc', vietnameseName: 'Đường Võ Nguyên Giáp' },
-    'nguyen van linh': { lat: 10.727800, lng: 106.705300, type: 'street', fullName: 'Nguyen Van Linh Parkway, District 7', vietnameseName: 'Đường Nguyễn Văn Linh' },
-    'nguyen huu tho': { lat: 10.727600, lng: 106.697800, type: 'street', fullName: 'Nguyen Huu Tho Street, District 7', vietnameseName: 'Đường Nguyễn Hữu Thọ' },
-    'hoang sa': { lat: 10.799600, lng: 106.709100, type: 'street', fullName: 'Hoang Sa Street, Binh Thanh', vietnameseName: 'Đường Hoàng Sa' },
-    'truong sa': { lat: 10.800100, lng: 106.708400, type: 'street', fullName: 'Truong Sa Street, Binh Thanh', vietnameseName: 'Đường Trường Sa' },
-
-    // Major Highways and Expressways
-    'highway 1a': { lat: 10.805600, lng: 106.695500, type: 'highway', fullName: 'National Highway 1A', vietnameseName: 'Quốc lộ 1A' },
-    'ring road 2': { lat: 10.793500, lng: 106.656700, type: 'highway', fullName: 'Ring Road 2 (Vo Van Kiet)', vietnameseName: 'Đường Vành đai 2' },
-    'east west highway': { lat: 10.747500, lng: 106.696900, type: 'highway', fullName: 'East-West Highway', vietnameseName: 'Đường Đông Tây' },
-    'saigon bridge': { lat: 10.799700, lng: 106.717300, type: 'bridge', fullName: 'Saigon Bridge', vietnameseName: 'Cầu Sài Gòn' },
-    'thu thiem bridge': { lat: 10.784600, lng: 106.717600, type: 'bridge', fullName: 'Thu Thiem Bridge', vietnameseName: 'Cầu Thủ Thiêm' },
-    'phu my bridge': { lat: 10.741900, lng: 106.737500, type: 'bridge', fullName: 'Phu My Bridge', vietnameseName: 'Cầu Phú Mỹ' },
-
-    // Popular Landmarks and Areas
-    'ben thanh market': { lat: 10.772465, lng: 106.698087, type: 'landmark', fullName: 'Ben Thanh Market, District 1', vietnameseName: 'Chợ Bến Thành' },
-    'reunification palace': { lat: 10.774974, lng: 106.695226, type: 'landmark', fullName: 'Reunification Palace, District 1', vietnameseName: 'Dinh Độc Lập' },
-    'independence palace': { lat: 10.774974, lng: 106.695226, type: 'landmark', fullName: 'Independence Palace, District 1', vietnameseName: 'Dinh Độc Lập' },
-    'notre dame cathedral': { lat: 10.779739, lng: 106.699037, type: 'landmark', fullName: 'Notre Dame Cathedral, District 1', vietnameseName: 'Nhà thờ Đức Bà' },
-    'central post office': { lat: 10.780013, lng: 106.699987, type: 'landmark', fullName: 'Central Post Office, District 1', vietnameseName: 'Bưu điện Trung tâm Sài Gòn' },
-    'bitexco tower': { lat: 10.771650, lng: 106.704605, type: 'landmark', fullName: 'Bitexco Financial Tower, District 1', vietnameseName: 'Tháp Bitexco' },
-    'landmark 81': { lat: 10.794963, lng: 106.721948, type: 'landmark', fullName: 'Landmark 81, Binh Thanh District', vietnameseName: 'Landmark 81' },
-    'ho chi minh city hall': { lat: 10.776645, lng: 106.701769, type: 'landmark', fullName: 'Ho Chi Minh City Hall, District 1', vietnameseName: 'Ủy ban Nhân dân Thành phố Hồ Chí Minh' },
-    'war remnants museum': { lat: 10.779446, lng: 106.692171, type: 'landmark', fullName: 'War Remnants Museum, District 3', vietnameseName: 'Bảo tàng Chứng tích Chiến tranh' },
-    'jade emperor pagoda': { lat: 10.791146, lng: 106.698276, type: 'landmark', fullName: 'Jade Emperor Pagoda, District 1', vietnameseName: 'Chùa Ngọc Hoàng' },
-    'cao dai temple': { lat: 10.783400, lng: 106.668900, type: 'landmark', fullName: 'Cao Dai Temple, District 5', vietnameseName: 'Thánh thất Cao Đài' },
-    'giac lam pagoda': { lat: 10.785600, lng: 106.618200, type: 'landmark', fullName: 'Giac Lam Pagoda, Tan Phu District', vietnameseName: 'Chùa Giác Lâm' },
-    'tan son nhat airport': { lat: 10.818800, lng: 106.651900, type: 'landmark', fullName: 'Tan Son Nhat International Airport', vietnameseName: 'Sân bay Quốc tế Tân Sơn Nhất' },
-    'saigon skydeck': { lat: 10.771650, lng: 106.704605, type: 'landmark', fullName: 'Saigon Skydeck, Bitexco Tower', vietnameseName: 'Saigon Skydeck' },
-    'diamond plaza': { lat: 10.781200, lng: 106.699800, type: 'landmark', fullName: 'Diamond Plaza, District 1', vietnameseName: 'Diamond Plaza' },
-    'vincom center': { lat: 10.778200, lng: 106.702100, type: 'landmark', fullName: 'Vincom Center, District 1', vietnameseName: 'Vincom Center' },
-    'takashimaya': { lat: 10.773100, lng: 106.700900, type: 'landmark', fullName: 'Takashimaya Department Store, District 1', vietnameseName: 'Takashimaya' },
-    'saigon centre': { lat: 10.773100, lng: 106.700900, type: 'landmark', fullName: 'Saigon Centre, District 1', vietnameseName: 'Saigon Centre' },
-
-    // Universities and Schools
-    'university of economics': { lat: 10.771600, lng: 106.688100, type: 'university', fullName: 'University of Economics Ho Chi Minh City', vietnameseName: 'Đại học Kinh tế TP.HCM' },
-    'rmit university': { lat: 10.729600, lng: 106.695100, type: 'university', fullName: 'RMIT University Vietnam, District 7', vietnameseName: 'Đại học RMIT Việt Nam' },
-    'ton duc thang university': { lat: 10.742200, lng: 106.703100, type: 'university', fullName: 'Ton Duc Thang University, District 7', vietnameseName: 'Đại học Tôn Đức Thắng' },
-    'banking university': { lat: 10.849600, lng: 106.771200, type: 'university', fullName: 'Banking University of Ho Chi Minh City', vietnameseName: 'Đại học Ngân hàng TP.HCM' },
-
-    // Parks and Recreation
-    'tao dan park': { lat: 10.771200, lng: 106.690300, type: 'park', fullName: 'Tao Dan Park, District 1', vietnameseName: 'Công viên Tao Đàn' },
-    'le van tam park': { lat: 10.788100, lng: 106.696800, type: 'park', fullName: 'Le Van Tam Park, District 1', vietnameseName: 'Công viên Lê Văn Tám' },
-    'september 23 park': { lat: 10.768600, lng: 106.695400, type: 'park', fullName: 'September 23 Park, District 1', vietnameseName: 'Công viên 23/9' },
-    'van thanh park': { lat: 10.802900, lng: 106.715600, type: 'park', fullName: 'Van Thanh Park, Binh Thanh', vietnameseName: 'Công viên Văn Thánh' },
-    'gia dinh park': { lat: 10.821400, lng: 106.672800, type: 'park', fullName: 'Gia Dinh Park, Go Vap', vietnameseName: 'Công viên Gia Định' },
-
-    // Markets and Commercial Areas
-    'saigon square': { lat: 10.773500, lng: 106.700400, type: 'market', fullName: 'Saigon Square, District 1', vietnameseName: 'Saigon Square' },
-    'russian market': { lat: 10.793100, lng: 106.686200, type: 'market', fullName: 'Russian Market, District 1', vietnameseName: 'Chợ Nga' },
-    'cho lon': { lat: 10.749600, lng: 106.652300, type: 'area', fullName: 'Cho Lon (Chinatown), District 5', vietnameseName: 'Chợ Lớn' },
-    'chinatown': { lat: 10.749600, lng: 106.652300, type: 'area', fullName: 'Chinatown (Cho Lon), District 5', vietnameseName: 'Chợ Lớn' },
-    'japanese town': { lat: 10.781900, lng: 106.701800, type: 'area', fullName: 'Japanese Town, District 1', vietnameseName: 'Khu phố Nhật' },
-    'korean town': { lat: 10.791200, lng: 106.665400, type: 'area', fullName: 'Korean Town, Tan Binh', vietnameseName: 'Khu phố Hàn' },
-
-    // Transportation Hubs
-    'ben xe mien dong': { lat: 10.816400, lng: 106.720900, type: 'transport', fullName: 'Mien Dong Bus Station, Binh Thanh', vietnameseName: 'Bến xe Miền Đông' },
-    'ben xe mien tay': { lat: 10.740300, lng: 106.616600, type: 'transport', fullName: 'Mien Tay Bus Station, Binh Tan', vietnameseName: 'Bến xe Miền Tây' },
-    'saigon railway station': { lat: 10.781800, lng: 106.676900, type: 'transport', fullName: 'Saigon Railway Station, District 3', vietnameseName: 'Ga Sài Gòn' },
-    'cat lai port': { lat: 10.776300, lng: 106.791600, type: 'transport', fullName: 'Cat Lai Port, District 2', vietnameseName: 'Cảng Cát Lái' },
-
-    // Hospitals and Medical Centers
-    'cho ray hospital': { lat: 10.756300, lng: 106.661400, type: 'hospital', fullName: 'Cho Ray Hospital, District 5', vietnameseName: 'Bệnh viện Chợ Rẫy' },
-    'university medical center': { lat: 10.756600, lng: 106.661900, type: 'hospital', fullName: 'University Medical Center, District 5', vietnameseName: 'Bệnh viện Đại học Y Dược' },
-    'fv hospital': { lat: 10.732600, lng: 106.699800, type: 'hospital', fullName: 'FV Hospital, District 7', vietnameseName: 'Bệnh viện FV' },
-    'international hospital': { lat: 10.791400, lng: 106.693200, type: 'hospital', fullName: 'International Hospital, District 3', vietnameseName: 'Bệnh viện Quốc tế' },
-
-    // Popular Areas and Neighborhoods
-    'pham ngu lao': { lat: 10.768100, lng: 106.693200, type: 'area', fullName: 'Pham Ngu Lao Backpacker Area, District 1', vietnameseName: 'Khu Phạm Ngũ Lão' },
-    'bui vien': { lat: 10.767400, lng: 106.693100, type: 'street', fullName: 'Bui Vien Street (Backpacker Street), District 1', vietnameseName: 'Đường Bùi Viện' },
-    'thao dien': { lat: 10.804700, lng: 106.734500, type: 'area', fullName: 'Thao Dien, District 2', vietnameseName: 'Thảo Điền' },
-    'an phu': { lat: 10.801900, lng: 106.737800, type: 'area', fullName: 'An Phu, District 2', vietnameseName: 'An Phú' },
-    'phu my hung': { lat: 10.730100, lng: 106.700200, type: 'area', fullName: 'Phu My Hung, District 7', vietnameseName: 'Phú Mỹ Hưng' },
-    'crescent mall': { lat: 10.729900, lng: 106.698400, type: 'landmark', fullName: 'Crescent Mall, District 7', vietnameseName: 'Crescent Mall' },
-
-    // Common abbreviations and alternative names
-    'q1': { lat: 10.774389, lng: 106.699172, type: 'district', fullName: 'District 1 (Q1), Ho Chi Minh City', vietnameseName: 'Quận 1' },
-    'q3': { lat: 10.783139, lng: 106.686991, type: 'district', fullName: 'District 3 (Q3), Ho Chi Minh City', vietnameseName: 'Quận 3' },
-    'bt': { lat: 10.803993, lng: 106.695464, type: 'district', fullName: 'Binh Thanh District (BT), Ho Chi Minh City', vietnameseName: 'Quận Bình Thạnh' },
-    'tb': { lat: 10.796291, lng: 106.668117, type: 'district', fullName: 'Tan Binh District (TB), Ho Chi Minh City', vietnameseName: 'Quận Tân Bình' },
-    'hcmc': { lat: 10.774389, lng: 106.699172, type: 'city', fullName: 'Ho Chi Minh City (HCMC)', vietnameseName: 'Thành phố Hồ Chí Minh' },
-    'saigon': { lat: 10.774389, lng: 106.699172, type: 'city', fullName: 'Saigon (Ho Chi Minh City)', vietnameseName: 'Sài Gòn' },
-    'tp hcm': { lat: 10.774389, lng: 106.699172, type: 'city', fullName: 'TP Ho Chi Minh (Ho Chi Minh City)', vietnameseName: 'TP Hồ Chí Minh' },
-
-    // Common intersections
-    'nga tu ben thanh': { lat: 10.772465, lng: 106.698087, type: 'intersection', fullName: 'Ben Thanh Market Intersection', vietnameseName: 'Ngã tư Bến Thành' },
-    'nga tu hang xanh': { lat: 10.801900, lng: 106.711600, type: 'intersection', fullName: 'Hang Xanh Intersection, Binh Thanh', vietnameseName: 'Ngã tư Hàng Xanh' },
-    'nga sau cong hoa': { lat: 10.797200, lng: 106.655600, type: 'intersection', fullName: 'Cong Hoa Six-way Intersection', vietnameseName: 'Ngã sáu Cộng Hòa' },
-    'nga ba dien bien phu': { lat: 10.797100, lng: 106.706700, type: 'intersection', fullName: 'Dien Bien Phu Three-way Intersection', vietnameseName: 'Ngã ba Điện Biên Phủ' }
-};
 
 // Function to check if coordinates are within Ho Chi Minh City bounds
 function isWithinHCMC(lat, lng) {
@@ -180,233 +34,326 @@ function isWithinHCMC(lat, lng) {
            lng <= HCMC_BOUNDS.northeast.lng;
 }
 
-// Google Geocoding API function with enhanced debugging
-async function geocodeAddress(query) {
-    try {
-        console.log('🔍 Starting geocoding for query:', query);
+// NominatimPlace class equivalent
+class NominatimPlace {
+    constructor(data) {
+        const address = data.address || {};
         
-        // Add Ho Chi Minh City context to improve results
-        const enhancedQuery = `${query}, Ho Chi Minh City, Vietnam`;
-        console.log('📍 Enhanced query:', enhancedQuery);
-        
-        const requestParams = {
-            address: enhancedQuery,
-            key: GOOGLE_GEOCODING_API_KEY,
-            region: 'vn',
-            language: 'vi',
-            bounds: `${HCMC_BOUNDS.southwest.lat},${HCMC_BOUNDS.southwest.lng}|${HCMC_BOUNDS.northeast.lat},${HCMC_BOUNDS.northeast.lng}`
+        // Extract name from display_name or use the first part
+        let name = data.name || '';
+        if (!name) {
+            const displayParts = data.display_name?.split(',') || [];
+            name = displayParts.length > 0 ? displayParts[0].trim() : 'Unknown Place';
+        }
+
+        this.placeId = data.place_id?.toString() || '';
+        this.displayName = data.display_name?.toString() || '';
+        this.name = name;
+        this.type = data.type?.toString() || '';
+        this.coordinates = {
+            lat: parseFloat(data.lat) || 0.0,
+            lng: parseFloat(data.lon) || 0.0
         };
-        
-        console.log('📡 Making request to:', GOOGLE_GEOCODING_BASE_URL);
-        console.log('📋 Request params:', requestParams);
+        this.houseNumber = address.house_number?.toString();
+        this.road = address.road?.toString();
+        this.suburb = address.suburb?.toString() || address.neighbourhood?.toString();
+        this.city = address.city?.toString() || address.town?.toString() || address.village?.toString();
+        this.state = address.state?.toString();
+        this.country = address.country?.toString();
+        this.postcode = address.postcode?.toString();
+        this.importance = parseFloat(data.importance) || 0.0;
+    }
 
-        const response = await axios.get(GOOGLE_GEOCODING_BASE_URL, {
-            params: requestParams,
-            timeout: 10000 // 10 second timeout
-        });
+    get formattedAddress() {
+        const parts = [];
 
-        console.log('✅ API Response Status:', response.data.status);
-        console.log('📊 Raw response:', JSON.stringify(response.data, null, 2));
-
-        if (response.data.status === 'OK' && response.data.results.length > 0) {
-            console.log(`🎯 Found ${response.data.results.length} raw results`);
-            
-            const results = response.data.results
-                .filter(result => {
-                    const location = result.geometry.location;
-                    const isInHCMC = isWithinHCMC(location.lat, location.lng);
-                    console.log(`📍 Result: ${result.formatted_address}, Coords: ${location.lat},${location.lng}, In HCMC: ${isInHCMC}`);
-                    return isInHCMC;
-                })
-                .map(result => {
-                    const location = result.geometry.location;
-                    const addressComponents = result.address_components;
-                    
-                    let district = '';
-                    let area = '';
-                    
-                    addressComponents.forEach(component => {
-                        if (component.types.includes('sublocality') || 
-                            component.types.includes('administrative_area_level_2')) {
-                            district = component.long_name;
-                        }
-                        if (component.types.includes('neighborhood') || 
-                            component.types.includes('sublocality_level_1')) {
-                            area = component.long_name;
-                        }
-                    });
-
-                    let type = 'place';
-                    if (result.types.includes('route')) {
-                        type = 'street';
-                    } else if (result.types.includes('establishment')) {
-                        type = 'landmark';
-                    } else if (result.types.includes('sublocality')) {
-                        type = 'area';
-                    } else if (result.types.includes('administrative_area_level_2')) {
-                        type = 'district';
-                    }
-
-                    return {
-                        name: result.name || result.formatted_address,
-                        displayName: result.formatted_address,
-                        lat: location.lat,
-                        lng: location.lng,
-                        type: type,
-                        score: 70,
-                        matchType: 'geocoding',
-                        fullAddress: result.formatted_address,
-                        placeId: result.place_id,
-                        district: district,
-                        area: area,
-                        source: 'google'
-                    };
-                });
-
-            console.log(`✨ Returning ${results.length} filtered results`);
-            return results;
-        } else if (response.data.status === 'ZERO_RESULTS') {
-            console.log('❌ No results found for query');
-            return [];
-        } else {
-            console.error('❌ API Error Status:', response.data.status);
-            console.error('❌ Error Message:', response.data.error_message);
-            return [];
+        if (this.houseNumber && this.road) {
+            parts.push(`${this.houseNumber} ${this.road}`);
+        } else if (this.road) {
+            parts.push(this.road);
         }
-    } catch (error) {
-        console.error('💥 Geocoding API error details:');
-        console.error('- Error message:', error.message);
-        console.error('- Error code:', error.code);
-        console.error('- Response status:', error.response?.status);
-        console.error('- Response data:', error.response?.data);
-        console.error('- Full error:', error);
-        return [];
+
+        if (this.suburb) parts.push(this.suburb);
+        if (this.city) parts.push(this.city);
+        if (this.state) parts.push(this.state);
+        if (this.country) parts.push(this.country);
+
+        return parts.join(', ');
+    }
+
+    get shortAddress() {
+        const parts = [];
+
+        if (this.road) parts.push(this.road);
+        if (this.city) parts.push(this.city);
+
+        return parts.join(', ');
+    }
+
+    get placeTypes() {
+        // Convert Nominatim types to our standardized types
+        switch (this.type.toLowerCase()) {
+            case 'restaurant':
+            case 'fast_food':
+            case 'cafe':
+                return ['restaurant', 'food'];
+            case 'fuel':
+            case 'gas_station':
+                return ['gas_station'];
+            case 'hospital':
+            case 'clinic':
+                return ['hospital', 'health'];
+            case 'school':
+            case 'university':
+            case 'college':
+                return ['school', 'education'];
+            case 'bank':
+            case 'atm':
+                return ['bank', 'finance'];
+            case 'shop':
+            case 'supermarket':
+            case 'shopping_mall':
+                return ['shopping', 'store'];
+            case 'tourism':
+            case 'attraction':
+            case 'museum':
+                return ['tourist_attraction'];
+            case 'place_of_worship':
+            case 'church':
+            case 'temple':
+                return ['place_of_worship'];
+            case 'park':
+            case 'garden':
+                return ['park'];
+            case 'bus_station':
+            case 'railway_station':
+                return ['transit_station'];
+            case 'hotel':
+            case 'motel':
+                return ['lodging'];
+            default:
+                if (this.road) return ['street'];
+                if (this.city) return ['locality'];
+                return ['place'];
+        }
+    }
+
+    // Convert to response format
+    toResponseFormat() {
+        return {
+            name: this.name,
+            displayName: this.displayName,
+            lat: this.coordinates.lat,
+            lng: this.coordinates.lng,
+            type: this.placeTypes[0] || 'place',
+            placeTypes: this.placeTypes,
+            score: Math.round(this.importance * 100), // Convert importance to score
+            matchType: 'nominatim',
+            fullAddress: this.formattedAddress,
+            shortAddress: this.shortAddress,
+            placeId: this.placeId,
+            district: this.getDistrictFromAddress(),
+            area: this.suburb,
+            source: 'nominatim',
+            houseNumber: this.houseNumber,
+            road: this.road,
+            suburb: this.suburb,
+            city: this.city,
+            state: this.state,
+            country: this.country,
+            postcode: this.postcode,
+            importance: this.importance,
+            icon: NominatimPlace.getPlaceIcon(this.placeTypes),
+            color: NominatimPlace.getPlaceColor(this.placeTypes)
+        };
+    }
+
+    getDistrictFromAddress() {
+        // Extract district information from city or suburb
+        if (this.city && this.city.toLowerCase().includes('district')) {
+            return this.city;
+        }
+        if (this.suburb && this.suburb.toLowerCase().includes('district')) {
+            return this.suburb;
+        }
+        return this.city || this.suburb || '';
+    }
+
+    // Get place icon based on type
+    static getPlaceIcon(types) {
+        if (types.includes('restaurant') || types.includes('food')) return 'restaurant';
+        if (types.includes('gas_station')) return 'local_gas_station';
+        if (types.includes('hospital') || types.includes('health')) return 'local_hospital';
+        if (types.includes('school') || types.includes('education')) return 'school';
+        if (types.includes('bank') || types.includes('finance')) return 'account_balance';
+        if (types.includes('shopping') || types.includes('store')) return 'shopping_cart';
+        if (types.includes('tourist_attraction')) return 'attractions';
+        if (types.includes('place_of_worship')) return 'place';
+        if (types.includes('park')) return 'park';
+        if (types.includes('transit_station')) return 'train';
+        if (types.includes('lodging')) return 'hotel';
+        if (types.includes('street')) return 'route';
+        if (types.includes('locality')) return 'location_city';
+        return 'location_on';
+    }
+
+    // Get place color based on type
+    static getPlaceColor(types) {
+        if (types.includes('restaurant') || types.includes('food')) return '#FF9800';
+        if (types.includes('gas_station')) return '#2196F3';
+        if (types.includes('hospital') || types.includes('health')) return '#F44336';
+        if (types.includes('school') || types.includes('education')) return '#4CAF50';
+        if (types.includes('bank') || types.includes('finance')) return '#3F51B5';
+        if (types.includes('shopping') || types.includes('store')) return '#9C27B0';
+        if (types.includes('tourist_attraction')) return '#795548';
+        if (types.includes('place_of_worship')) return '#673AB7';
+        if (types.includes('park')) return '#8BC34A';
+        if (types.includes('transit_station')) return '#009688';
+        if (types.includes('lodging')) return '#E91E63';
+        if (types.includes('street')) return '#616161';
+        if (types.includes('locality')) return '#607D8B';
+        return '#2196F3';
     }
 }
 
-// Enhanced search function with support for Vietnamese diacritics
-function searchPlaces(query) {
-    const searchTerm = normalizeVietnamese(query).trim();
-    const results = [];
+// Nominatim geocoding service
+class NominatimGeocodingService {
+    static async searchPlaces(query, location = null, limit = 10, countryCode = 'vn') {
+        if (!query.trim()) return [];
 
-    // Score-based matching for better relevance
-    Object.keys(vietnamPlaces).forEach(place => {
-        const placeData = vietnamPlaces[place];
-        const normalizedPlace = normalizeVietnamese(place);
-        const normalizedVietnameseName = placeData.vietnameseName ? normalizeVietnamese(placeData.vietnameseName) : '';
-        let score = 0;
-        let matchType = '';
+        await enforceRateLimit();
 
-        // Exact match (highest score)
-        if (normalizedPlace === searchTerm || normalizedVietnameseName === searchTerm) {
-            score = 100;
-            matchType = 'exact';
-        }
-        // Starts with query (high score)
-        else if (normalizedPlace.startsWith(searchTerm) || normalizedVietnameseName.startsWith(searchTerm)) {
-            score = 80;
-            matchType = 'prefix';
-        }
-        // Contains all words from query (medium score)
-        else if (containsAllWords(normalizedPlace, searchTerm) || containsAllWords(normalizedVietnameseName, searchTerm)) {
-            score = 60;
-            matchType = 'all-words';
-        }
-        // Contains any word from query (lower score)
-        else if (containsAnyWord(normalizedPlace, searchTerm) || containsAnyWord(normalizedVietnameseName, searchTerm)) {
-            score = 40;
-            matchType = 'partial';
-        }
-        // Similar/fuzzy match (lowest score)
-        else if (isSimilar(normalizedPlace, searchTerm) || isSimilar(normalizedVietnameseName, searchTerm)) {
-            score = 20;
-            matchType = 'similar';
-        }
+        try {
+            const queryParams = {
+                q: query.trim(),
+                format: 'jsonv2',
+                addressdetails: '1',
+                limit: limit.toString(),
+                dedupe: '1', // Remove duplicates
+                namedetails: '1',
+                extratags: '1'
+            };
 
-        if (score > 0) {
-            results.push({
-                name: place,
-                displayName: placeData.vietnameseName || placeData.fullName || place,
-                lat: placeData.lat,
-                lng: placeData.lng,
-                type: placeData.type,
-                score: score,
-                matchType: matchType,
-                vietnameseName: placeData.vietnameseName,
-                source: 'local'
-            });
-        }
-    });
-
-    // Sort by score (highest first), then by name length (shorter first)
-    results.sort((a, b) => {
-        if (b.score !== a.score) return b.score - a.score;
-        return a.name.length - b.name.length;
-    });
-
-    return results;
-}
-
-// Helper functions for matching
-function containsAllWords(text, query) {
-    if (!text || !query) return false;
-    const queryWords = query.split(' ').filter(word => word.length > 0);
-    return queryWords.every(word => text.includes(word));
-}
-
-function containsAnyWord(text, query) {
-    if (!text || !query) return false;
-    const queryWords = query.split(' ').filter(word => word.length > 1); // Only consider words > 1 char
-    return queryWords.some(word => text.includes(word));
-}
-
-function isSimilar(text, query) {
-    if (!text || !query) return false;
-    const similarity = calculateSimilarity(text, query);
-    return similarity > 0.6; // 60% similarity threshold
-}
-
-function calculateSimilarity(str1, str2) {
-    const longer = str1.length > str2.length ? str1 : str2;
-    const shorter = str1.length > str2.length ? str2 : str1;
-
-    if (longer.length === 0) return 1.0;
-
-    const distance = levenshteinDistance(longer, shorter);
-    return (longer.length - distance) / longer.length;
-}
-
-function levenshteinDistance(str1, str2) {
-    const matrix = [];
-
-    for (let i = 0; i <= str2.length; i++) {
-        matrix[i] = [i];
-    }
-
-    for (let j = 0; j <= str1.length; j++) {
-        matrix[0][j] = j;
-    }
-
-    for (let i = 1; i <= str2.length; i++) {
-        for (let j = 1; j <= str1.length; j++) {
-            if (str2.charAt(i - 1) === str1.charAt(j - 1)) {
-                matrix[i][j] = matrix[i - 1][j - 1];
-            } else {
-                matrix[i][j] = Math.min(
-                    matrix[i - 1][j - 1] + 1,
-                    matrix[i][j - 1] + 1,
-                    matrix[i - 1][j] + 1
-                );
+            // Add country restriction if specified
+            if (countryCode) {
+                queryParams.countrycodes = countryCode;
             }
+
+            // Add location bias if provided (prioritize results near this location)
+            if (location) {
+                const lat = location.lat;
+                const lng = location.lng;
+                const offset = 0.45; // Roughly 50km in degrees
+
+                queryParams.viewbox = `${lng - offset},${lat + offset},${lng + offset},${lat - offset}`;
+                queryParams.bounded = '1';
+            } else {
+                // Default to Ho Chi Minh City area
+                queryParams.viewbox = `${HCMC_BOUNDS.southwest.lng},${HCMC_BOUNDS.northeast.lat},${HCMC_BOUNDS.northeast.lng},${HCMC_BOUNDS.southwest.lat}`;
+                queryParams.bounded = '1';
+            }
+
+            const url = `${NOMINATIM_BASE_URL}/search`;
+            console.log('🔍 Nominatim search URL:', url);
+            console.log('📋 Query params:', queryParams);
+
+            const response = await axios.get(url, {
+                params: queryParams,
+                headers: {
+                    'User-Agent': 'VietnamTrafficApp/1.0 (contact@example.com)' // Required by Nominatim
+                },
+                timeout: 10000
+            });
+
+            if (response.status === 200) {
+                const data = response.data;
+                console.log(`🎯 Found ${data.length} raw results from Nominatim`);
+
+                const places = data
+                    .map(item => new NominatimPlace(item))
+                    .filter(place => this.isValidPlace(place))
+                    .filter(place => isWithinHCMC(place.coordinates.lat, place.coordinates.lng)); // Filter to HCMC area
+
+                // Sort by importance (Nominatim's relevance score)
+                places.sort((a, b) => b.importance - a.importance);
+
+                console.log(`✨ Returning ${places.length} valid results within HCMC bounds`);
+                return places;
+            } else {
+                console.log('❌ Nominatim error:', response.status, response.data);
+                return [];
+            }
+        } catch (error) {
+            console.error('💥 Error searching places:', error.message);
+            if (error.response) {
+                console.error('- Response status:', error.response.status);
+                console.error('- Response data:', error.response.data);
+            }
+            return [];
         }
     }
 
-    return matrix[str2.length][str1.length];
+    static isValidPlace(place) {
+        // Filter out very generic or invalid results
+        if (place.name.length < 2) return false;
+        if (place.coordinates.lat === 0 && place.coordinates.lng === 0) return false;
+
+        // Filter out some unwanted types
+        const lowercaseName = place.name.toLowerCase();
+        if (lowercaseName.includes('unnamed') ||
+            lowercaseName.includes('unknown') ||
+            lowercaseName.startsWith('way ') ||
+            lowercaseName.startsWith('node ')) {
+            return false;
+        }
+
+        return true;
+    }
+
+    static async reverseGeocode(location) {
+        await enforceRateLimit();
+
+        try {
+            const queryParams = {
+                lat: location.lat.toString(),
+                lon: location.lng.toString(),
+                format: 'jsonv2',
+                addressdetails: '1',
+                namedetails: '1',
+                zoom: '18' // High detail level
+            };
+
+            const url = `${NOMINATIM_BASE_URL}/reverse`;
+            console.log('🔄 Nominatim reverse geocoding:', url);
+
+            const response = await axios.get(url, {
+                params: queryParams,
+                headers: {
+                    'User-Agent': 'VietnamTrafficApp/1.0 (contact@example.com)'
+                },
+                timeout: 10000
+            });
+
+            if (response.status === 200) {
+                const data = response.data;
+                return new NominatimPlace(data);
+            } else {
+                console.log('❌ Nominatim reverse geocode error:', response.status);
+                return null;
+            }
+        } catch (error) {
+            console.error('💥 Error in reverse geocoding:', error.message);
+            return null;
+        }
+    }
 }
 
-// Main search endpoint with Google Geocoding priority
+// Main search endpoint using only Nominatim
 router.get('/', async (req, res) => {
     const query = req.query.query;
+    const lat = req.query.lat ? parseFloat(req.query.lat) : null;
+    const lng = req.query.lng ? parseFloat(req.query.lng) : null;
+    const limit = req.query.limit ? parseInt(req.query.limit) : 10;
 
     if (!query) {
         return res.status(400).json({
@@ -415,59 +362,26 @@ router.get('/', async (req, res) => {
         });
     }
 
-    console.log('Search query:', query);
+    console.log('🔍 Search query:', query);
+    if (lat && lng) {
+        console.log('📍 Location bias:', { lat, lng });
+    }
 
     try {
-        // First, try Google Geocoding API (prioritized)
-        console.log('Trying Google Geocoding for:', query);
-        const geocodingResults = await geocodeAddress(query);
-        
-        // If we have good Google results, return them with minimal local mixing
-        if (geocodingResults.length > 0) {
-            // Only add local results if they're exact matches and Google has few results
-            let combinedResults = [...geocodingResults];
-            
-            if (geocodingResults.length < 3) {
-                const localResults = searchPlaces(query);
-                const exactLocalMatches = localResults.filter(result => result.score >= 90);
-                combinedResults = [...geocodingResults, ...exactLocalMatches];
-            }
-            
-            // Sort with Google results getting priority
-            combinedResults.sort((a, b) => {
-                // Google results always get higher priority
-                if (a.source === 'google' && b.source !== 'google') return -1;
-                if (b.source === 'google' && a.source !== 'google') return 1;
-                // Then sort by score
-                if (b.score !== a.score) return b.score - a.score;
-                return a.name.length - b.name.length;
-            });
+        const location = (lat && lng) ? { lat, lng } : null;
+        const places = await NominatimGeocodingService.searchPlaces(query, location, limit);
 
-            const limitedResults = combinedResults.slice(0, 10);
+        if (places.length > 0) {
+            const results = places.map(place => place.toResponseFormat());
             
             res.json({
                 success: true,
-                message: `Found ${limitedResults.length} result(s) for: ${query}`,
-                results: limitedResults,
+                message: `Found ${results.length} result(s) for: ${query}`,
+                results: results,
                 searchTerm: query,
-                source: 'google-priority',
-                geocodingCount: geocodingResults.length
-            });
-            return;
-        }
-
-        // Fallback to local results only if Google returns nothing
-        console.log('No Google results, falling back to local database');
-        const localResults = searchPlaces(query);
-        const limitedResults = localResults.slice(0, 10);
-        
-        if (limitedResults.length > 0) {
-            res.json({
-                success: true,
-                message: `Found ${limitedResults.length} local result(s) for: ${query} (Google had no results)`,
-                results: limitedResults,
-                searchTerm: query,
-                source: 'local-fallback'
+                source: 'nominatim',
+                bounds: HCMC_BOUNDS,
+                locationBias: location
             });
         } else {
             res.json({
@@ -475,147 +389,124 @@ router.get('/', async (req, res) => {
                 message: `No results found for "${query}" in Ho Chi Minh City area`,
                 results: [],
                 searchTerm: query,
-                source: 'none'
+                source: 'nominatim',
+                bounds: HCMC_BOUNDS
             });
         }
     } catch (error) {
-        console.error('Search error:', error);
-        
-        // Fallback to local results only on API error
-        const localResults = searchPlaces(query);
-        const limitedResults = localResults.slice(0, 10);
-        
-        res.json({
-            success: true,
-            message: `Found ${limitedResults.length} local result(s) for: ${query} (Google API error)`,
-            results: limitedResults,
-            searchTerm: query,
-            source: 'local-error-fallback',
-            error: 'Geocoding service error'
+        console.error('💥 Search error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Search service error',
+            error: error.message,
+            searchTerm: query
         });
     }
 });
 
-// Enhanced suggestions endpoint for autocomplete with geocoding
+// Suggestions endpoint for autocomplete using Nominatim
 router.get('/suggestions', async (req, res) => {
     const query = req.query.q;
+    const lat = req.query.lat ? parseFloat(req.query.lat) : null;
+    const lng = req.query.lng ? parseFloat(req.query.lng) : null;
 
     if (!query || query.length < 2) {
-        return res.json({ success: true, suggestions: [] });
+        return res.json({ 
+            success: true, 
+            suggestions: [],
+            message: 'Query too short for suggestions'
+        });
     }
 
     try {
-        const searchTerm = query.trim();
-        const suggestions = [];
+        const location = (lat && lng) ? { lat, lng } : null;
+        const places = await NominatimGeocodingService.searchPlaces(query, location, 8); // Limit to 8 for suggestions
 
-        // Get local matches first
-        const localMatches = searchPlaces(searchTerm);
-        
-        // Add local suggestions
-        localMatches.slice(0, 6).forEach(match => {
-            suggestions.push({
-                name: match.name,
-                displayName: match.vietnameseName || match.displayName,
-                type: match.type,
-                score: match.score,
-                matchType: match.matchType,
-                vietnameseName: match.vietnameseName,
-                source: 'local'
-            });
-        });
-
-        // If we have few local suggestions and query is long enough, try geocoding
-        if (suggestions.length < 4 && query.length >= 4) {
-            try {
-                const geocodingResults = await geocodeAddress(query);
-                
-                geocodingResults.slice(0, 4).forEach(result => {
-                    // Avoid duplicates
-                    const isDuplicate = suggestions.some(s => 
-                        Math.abs(s.lat - result.lat) < 0.001 && 
-                        Math.abs(s.lng - result.lng) < 0.001
-                    );
-                    
-                    if (!isDuplicate) {
-                        suggestions.push({
-                            name: result.name,
-                            displayName: result.displayName,
-                            type: result.type,
-                            score: result.score,
-                            matchType: result.matchType,
-                            source: 'google'
-                        });
-                    }
-                });
-            } catch (error) {
-                console.log('Geocoding in suggestions failed:', error.message);
-            }
-        }
-
-        // Sort suggestions by score
-        suggestions.sort((a, b) => b.score - a.score);
-
-        res.json({
-            success: true,
-            suggestions: suggestions.slice(0, 8), // Limit to 8 suggestions
-            query: query
-        });
-    } catch (error) {
-        console.error('Suggestions error:', error);
-        
-        // Fallback to local suggestions only
-        const localMatches = searchPlaces(query.trim());
-        const suggestions = localMatches.slice(0, 6).map(match => ({
-            name: match.name,
-            displayName: match.vietnameseName || match.displayName,
-            type: match.type,
-            score: match.score,
-            matchType: match.matchType,
-            vietnameseName: match.vietnameseName,
-            source: 'local'
+        const suggestions = places.map(place => ({
+            name: place.name,
+            displayName: place.displayName,
+            shortAddress: place.shortAddress,
+            type: place.placeTypes[0] || 'place',
+            placeTypes: place.placeTypes,
+            lat: place.coordinates.lat,
+            lng: place.coordinates.lng,
+            importance: place.importance,
+            icon: NominatimPlace.getPlaceIcon(place.placeTypes),
+            color: NominatimPlace.getPlaceColor(place.placeTypes),
+            source: 'nominatim'
         }));
 
         res.json({
             success: true,
             suggestions: suggestions,
             query: query,
-            error: 'Geocoding service unavailable'
+            source: 'nominatim'
+        });
+    } catch (error) {
+        console.error('💥 Suggestions error:', error);
+        res.json({
+            success: false,
+            suggestions: [],
+            query: query,
+            error: 'Suggestions service error'
         });
     }
 });
 
-// Additional endpoint for getting place details
-router.get('/place/:placeName', (req, res) => {
-    const placeName = normalizeVietnamese(req.params.placeName);
-    let place = null;
+// Place details endpoint using place ID
+router.get('/place/:placeId', async (req, res) => {
+    const placeId = req.params.placeId;
 
-    // Search for place by normalized name or Vietnamese name
-    Object.keys(vietnamPlaces).forEach(key => {
-        const normalizedKey = normalizeVietnamese(key);
-        const normalizedVietnameseName = vietnamPlaces[key].vietnameseName ? normalizeVietnamese(vietnamPlaces[key].vietnameseName) : '';
-        if (normalizedKey === placeName || normalizedVietnameseName === placeName) {
-            place = vietnamPlaces[key];
-            place.name = key;
-        }
-    });
-
-    if (place) {
-        res.json({
-            success: true,
-            place: {
-                name: place.name,
-                displayName: place.vietnameseName || place.fullName || place.name,
-                lat: place.lat,
-                lng: place.lng,
-                type: place.type,
-                vietnameseName: place.vietnameseName,
-                source: 'local'
-            }
-        });
-    } else {
-        res.status(404).json({
+    if (!placeId) {
+        return res.status(400).json({
             success: false,
-            message: 'Place not found in local database'
+            message: 'Place ID is required'
+        });
+    }
+
+    try {
+        await enforceRateLimit();
+
+        const queryParams = {
+            place_id: placeId,
+            format: 'jsonv2',
+            addressdetails: '1',
+            namedetails: '1',
+            extratags: '1'
+        };
+
+        const url = `${NOMINATIM_BASE_URL}/lookup`;
+        
+        const response = await axios.get(url, {
+            params: queryParams,
+            headers: {
+                'User-Agent': 'VietnamTrafficApp/1.0 (contact@example.com)'
+            },
+            timeout: 10000
+        });
+
+        if (response.status === 200 && response.data.length > 0) {
+            const place = new NominatimPlace(response.data[0]);
+            
+            res.json({
+                success: true,
+                place: place.toResponseFormat(),
+                source: 'nominatim'
+            });
+        } else {
+            res.status(404).json({
+                success: false,
+                message: 'Place not found',
+                placeId: placeId
+            });
+        }
+    } catch (error) {
+        console.error('💥 Place details error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error fetching place details',
+            error: error.message,
+            placeId: placeId
         });
     }
 });
@@ -631,76 +522,88 @@ router.get('/reverse', async (req, res) => {
         });
     }
 
+    const latitude = parseFloat(lat);
+    const longitude = parseFloat(lng);
+
     // Check if coordinates are within HCMC bounds
-    if (!isWithinHCMC(parseFloat(lat), parseFloat(lng))) {
+    if (!isWithinHCMC(latitude, longitude)) {
         return res.status(400).json({
             success: false,
-            message: 'Coordinates are outside Ho Chi Minh City area'
+            message: 'Coordinates are outside Ho Chi Minh City area',
+            bounds: HCMC_BOUNDS,
+            coordinates: { lat: latitude, lng: longitude }
         });
     }
 
     try {
-        const response = await axios.get(GOOGLE_GEOCODING_BASE_URL, {
-            params: {
-                latlng: `${lat},${lng}`,
-                key: GOOGLE_GEOCODING_API_KEY,
-                language: 'vi',
-                result_type: 'street_address|route|sublocality|locality'
-            }
-        });
-
-        if (response.data.status === 'OK' && response.data.results.length > 0) {
-            const result = response.data.results[0];
-            
+        const place = await NominatimGeocodingService.reverseGeocode({ lat: latitude, lng: longitude });
+        
+        if (place) {
             res.json({
                 success: true,
-                address: result.formatted_address,
-                components: result.address_components,
-                placeId: result.place_id,
-                types: result.types,
-                coordinates: { lat: parseFloat(lat), lng: parseFloat(lng) }
+                address: place.formattedAddress,
+                place: place.toResponseFormat(),
+                coordinates: { lat: latitude, lng: longitude },
+                source: 'nominatim'
             });
         } else {
             res.status(404).json({
                 success: false,
-                message: 'No address found for these coordinates'
+                message: 'No address found for these coordinates',
+                coordinates: { lat: latitude, lng: longitude }
             });
         }
     } catch (error) {
-        console.error('Reverse geocoding error:', error);
+        console.error('💥 Reverse geocoding error:', error);
         res.status(500).json({
             success: false,
-            message: 'Reverse geocoding service error'
+            message: 'Reverse geocoding service error',
+            error: error.message,
+            coordinates: { lat: latitude, lng: longitude }
         });
     }
 });
-// Test endpoint to check API key and connection
+
+// Test endpoint to check Nominatim API connection
 router.get('/test-api', async (req, res) => {
     try {
-        console.log('🧪 Testing Google Geocoding API...');
+        console.log('🧪 Testing Nominatim API...');
         
-        const response = await axios.get(GOOGLE_GEOCODING_BASE_URL, {
-            params: {
-                address: 'Ben Thanh Market, Ho Chi Minh City',
-                key: GOOGLE_GEOCODING_API_KEY
-            },
-            timeout: 5000
-        });
+        const testQuery = 'Ben Thanh Market, Ho Chi Minh City';
+        const places = await NominatimGeocodingService.searchPlaces(testQuery, null, 5);
         
         res.json({
             success: true,
-            status: response.data.status,
-            apiKey: GOOGLE_GEOCODING_API_KEY.substring(0, 10) + '...',
-            results: response.data.results?.length || 0,
-            rawResponse: response.data
+            message: 'Nominatim API test successful',
+            testQuery: testQuery,
+            results: places.length,
+            sampleResults: places.slice(0, 2).map(p => p.toResponseFormat()),
+            service: 'Nominatim (OpenStreetMap)',
+            baseUrl: NOMINATIM_BASE_URL,
+            rateLimit: `${REQUEST_DELAY}ms between requests`
         });
     } catch (error) {
         res.json({
             success: false,
+            message: 'Nominatim API test failed',
             error: error.message,
-            apiKey: GOOGLE_GEOCODING_API_KEY.substring(0, 10) + '...',
-            details: error.response?.data
+            service: 'Nominatim (OpenStreetMap)',
+            baseUrl: NOMINATIM_BASE_URL
         });
     }
 });
+
+// Health check endpoint
+router.get('/health', (req, res) => {
+    res.json({
+        success: true,
+        message: 'Search service is healthy',
+        service: 'Nominatim Geocoding Service',
+        baseUrl: NOMINATIM_BASE_URL,
+        bounds: HCMC_BOUNDS,
+        rateLimit: `${REQUEST_DELAY}ms`,
+        timestamp: new Date().toISOString()
+    });
+});
+
 module.exports = router;
