@@ -464,6 +464,9 @@
     </style>
     <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyC6pWyasaBezX1PMIsc14ClB1R2qDdcOjY&callback=initMap"></script>
     <script src="https://vjs.zencdn.net/8.5.2/video.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="js/traffic_density_service.js"></script>
+    <script src="js/dashboard_manager.js"></script>
     <link href="https://vjs.zencdn.net/8.5.2/video-js.css" rel="stylesheet">
 </head>
 <body>
@@ -474,9 +477,25 @@
         </form>
         <div id="other-functions">Report Issues</div>
         <div id="view-live-feeds">View Live Feeds</div>
-        <button id="clear-search" onclick="clearSearchMarkers()" style="
+        <div id="view-dashboard" style="
             position: absolute;
             top: 120px;
+            right: 20px;
+            padding: 10px 20px;
+            font-size: 14px;
+            background: #ffffff;
+            color: #2e7d32;
+            border: 1px solid #2e7d32;
+            border-radius: 20px;
+            cursor: pointer;
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+            z-index: 10;
+            transition: all 0.3s ease;
+        " onmouseover="this.style.background='#2e7d32'; this.style.color='white';" 
+        onmouseout="this.style.background='#ffffff'; this.style.color='#2e7d32';">📊 Traffic Dashboard</div>
+        <button id="clear-search" onclick="clearSearchMarkers()" style="
+            position: absolute;
+            top: 170px;
             right: 20px;
             padding: 10px 20px;
             font-size: 14px;
@@ -1132,6 +1151,8 @@ document.getElementById('search-form').addEventListener('submit', async (e) => {
             
             // Clear search bar
             document.getElementById('search-bar').value = '';
+            // Show clear button
+            document.getElementById('clear-search').style.display = 'block';
             
         } else if (result.useGeocoding) {
             // Fallback to Google Maps Geocoding
@@ -1185,6 +1206,8 @@ document.getElementById('search-form').addEventListener('submit', async (e) => {
                     
                     // Clear search bar
                     document.getElementById('search-bar').value = '';
+                    // Show clear button
+                    document.getElementById('clear-search').style.display = 'block';
                 } else {
                     console.error('Geocoding failed:', status);
                     showSearchMessage(`Location "${searchText}" not found`, 'error');
@@ -1259,6 +1282,11 @@ function addSearchAutocomplete() {
     const searchForm = document.getElementById('search-form');
     let currentSuggestions = null;
     let debounceTimer = null;
+function clearSearchMarkers() {
+    searchMarkers.forEach(marker => marker.setMap(null));
+    searchMarkers = [];
+    document.getElementById('clear-search').style.display = 'none';
+}
     
     // Fallback suggestions from your vietnamPlaces data
     const fallbackSuggestions = [
@@ -1430,6 +1458,14 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Initialize search autocomplete AFTER DOM is ready
     addSearchAutocomplete();
+    // Initialize dashboard
+    let dashboardManager = null;
+    document.getElementById('view-dashboard').addEventListener('click', () => {
+        if (!dashboardManager) {
+            dashboardManager = new DashboardManager();
+        }
+        dashboardManager.openDashboard();
+    });
 
     // Panel toggles
     document.getElementById('toggle-options').addEventListener('click', () => togglePanel('options-panel'));
