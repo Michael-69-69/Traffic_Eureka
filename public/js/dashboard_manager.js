@@ -330,7 +330,7 @@ class DashboardManager {
         
         // Update metrics
         document.getElementById('vehicle-count').textContent = 
-            this.densityService.getConservativeVehicleCount(data);
+            data.vehicle_count;
         document.getElementById('density').textContent = 
             `${data.density?.toFixed(1) || '0.0'}%`;
         document.getElementById('estimated-speed').textContent = 
@@ -384,7 +384,7 @@ class DashboardManager {
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 14px; color: #666;">
                     <div>Density: <strong>${data.density?.toFixed(1) || '0.0'}%</strong></div>
                     <div>Speed: <strong>${data.estimated_speed?.toFixed(1) || '0.0'} km/h</strong></div>
-                    <div>Vehicles: <strong>${this.densityService.getConservativeVehicleCount(data)}</strong></div>
+                    <div>Vehicles: <strong>${data.vehicle_count}</strong></div>
                     <div>Weather: <strong>${data.weather || 'Unknown'}</strong></div>
                 </div>
             `;
@@ -669,7 +669,7 @@ class DashboardManager {
             road: data.name || cameraId,
             timestamp: new Date().toISOString(),
             metrics: {
-                vehicleCount: this.densityService.getConservativeVehicleCount(data),
+                vehicleCount: data.vehicle_count,
                 density: data.density?.toFixed(1) || '0.0',
                 estimatedSpeed: data.estimated_speed?.toFixed(1) || '0.0',
                 trafficLevel: data.traffic_level || 'Unknown',

@@ -6,6 +6,7 @@ const incidentRoutes = require('./routes/incidents');
 const searchRoutes = require('./routes/search');
 const controlRoutes = require('./routes/controls');
 const cameraRoutes = require('./routes/cameras');
+const densityRoutes = require('./routes/density');
 const multer = require('multer');
 
 // Configure multer for file uploads
@@ -148,6 +149,7 @@ app.use('/api/incidents', (req, res, next) => {
 app.use('/api/search', searchRoutes);
 app.use('/api/controls', controlRoutes);
 app.use('/api/cameras', cameraRoutes);
+app.use('/api/density', densityRoutes);
 
 // Serve the HTML file
 app.get('/', (req, res) => {

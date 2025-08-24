@@ -462,12 +462,16 @@
             display: block;
         }
     </style>
-    <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyC6pWyasaBezX1PMIsc14ClB1R2qDdcOjY&callback=initMap"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
     <script src="https://vjs.zencdn.net/8.5.2/video.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="js/traffic_density_service.js"></script>
     <script src="js/dashboard_manager.js"></script>
     <link href="https://vjs.zencdn.net/8.5.2/video-js.css" rel="stylesheet">
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-storage-compat.js"></script>
 </head>
 <body>
     <div id="map-container">
@@ -680,6 +684,22 @@
         let videoPlayer = null;
         let currentReportType = 'hazard';
 
+        // Your web app's Firebase configuration
+        const firebaseConfig = {
+            apiKey: "AIzaSyD7t3T4mTw7PoW4NVMGXZ8yQ7r_Mv6uglE",
+            authDomain: "trafficmanaging.firebaseapp.com",
+            projectId: "trafficmanaging",
+            storageBucket: "trafficmanaging.appspot.com",
+            messagingSenderId: "745287485470",
+            appId: "1:745287485470:web:bbe19f41ad4be3c8cd460f",
+            measurementId: "G-KLHD9NZT5R"
+        };
+
+        // Initialize Firebase
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.firestore();
+        const storage = firebase.storage();
+
         // Camera data with actual locations and live image URLs
         const cameras = {
             'ly-thai-to-nguyen-dinh-chieu': {
@@ -727,10 +747,12 @@
             document.getElementById('map-loading').style.display = 'none';
             try {
                 const hoChiMinhCity = { lat: 10.7769, lng: 106.7009 };
-                map = new google.maps.Map(document.getElementById("map"), {
-                    center: hoChiMinhCity,
-                    zoom: 12,
-                });
+                map = L.map('map').setView([hoChiMinhCity.lat, hoChiMinhCity.lng], 12);
+
+                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                }).addTo(map);
+
                 console.log("Map initialized successfully. Buttons should be visible.");
                 document.getElementById('map-error').style.display = 'none';
                 loadHazards();
@@ -788,8 +810,7 @@
 
                 // Center map on selected camera
                 if (map) {
-                    map.setCenter({ lat: camera.lat, lng: camera.lng });
-                    map.setZoom(16);
+                    map.setView([camera.lat, camera.lng], 16);
                 }
             }
         }
@@ -865,8 +886,6 @@
                 `;
             }
         }
-
-        window.initMap = initMap;
 
         // Dragging functionality for panels - FIXED VERSION
         function makePanelDraggable(panelId) {
@@ -995,89 +1014,105 @@
         function hideReportForm() {
             document.getElementById('report-form').style.display = 'none';
             selectedLocation = null;
-            map.setOptions({ draggableCursor: null });
-            google.maps.event.clearListeners(map, 'click');
+            // Remove the invalid map.setOptions call
+            // Use map.setView if you want to reset the map view (optional)
+            // Example: Reset to Ho Chi Minh City center
+            if (map) {
+                map.setView([10.7769, 106.7009], 12); // Reset to default view
+            }
+            // Remove any click listeners if necessary
+            map.off('click');
         }
 
-        async function submitReport() {
-            if (!selectedLocation) {
-                alert('Please select a location on the map first.');
-                return;
-            }
+async function submitReport() {
+    if (!selectedLocation) {
+        alert('Please select a location on the map first.');
+        return;
+    }
 
-            const imageFile = document.getElementById('report-image').files[0];
-            const formData = new FormData();
-            
-            // Add common fields
-            formData.append('lat', selectedLocation.lat());
-            formData.append('lng', selectedLocation.lng());
-            formData.append('timestamp', new Date().toISOString());
-            
-            if (imageFile) {
-                formData.append('image', imageFile);
-            }
+    const imageFile = document.getElementById('report-image').files[0];
+    const formData = new FormData();
+    
+    formData.append('lat', selectedLocation.lat);
+    formData.append('lng', selectedLocation.lng);
+    formData.append('timestamp', new Date().toISOString());
+    
+    if (imageFile) {
+        formData.append('image', imageFile);
+    }
 
-            let endpoint, requiredFields;
+    let endpoint, requiredFields;
 
+    if (currentReportType === 'hazard') {
+        const cause = document.getElementById('hazard-cause').value;
+        const severity = document.getElementById('hazard-severity').value;
+        const notes = document.getElementById('hazard-notes').value;
+        
+        if (!cause || !severity || !notes) {
+            alert('Please fill in all required fields for hazard report.');
+            return;
+        }
+        
+        formData.append('cause', cause);
+        formData.append('severity', parseInt(severity));
+        formData.append('notes', notes);
+        endpoint = '/api/hazards';
+    } else if (currentReportType === 'incident') {
+        const description = document.getElementById('incident-description').value;
+        const type = document.getElementById('incident-type').value;
+        const impact = document.getElementById('incident-impact').value;
+        
+        if (!description || !type || !impact) {
+            alert('Please fill in all required fields for incident report.');
+            return;
+        }
+        
+        formData.append('description', description);
+        formData.append('type', type);
+        formData.append('impact', parseInt(impact));
+        formData.append('verified', false); // Default to false
+        endpoint = '/api/incidents';
+    }
+
+    try {
+        console.log(`Submitting ${currentReportType} to ${endpoint}`);
+        const response = await fetch(endpoint, {
+            method: 'POST',
+            body: formData
+        });
+        
+        const result = await response.json();
+        console.log('Server response:', result);
+        
+        if (result.success) {
             if (currentReportType === 'hazard') {
-                const cause = document.getElementById('hazard-cause').value;
-                const severity = document.getElementById('hazard-severity').value;
-                const notes = document.getElementById('hazard-notes').value;
-                
-                if (!cause || !severity || !notes) {
-                    alert('Please fill in all required fields for hazard report.');
-                    return;
-                }
-                
-                formData.append('cause', cause);
-                formData.append('severity', parseInt(severity));
-                formData.append('notes', notes);
-                endpoint = '/api/hazards';
-                
-            } else if (currentReportType === 'incident') {
-                const description = document.getElementById('incident-description').value;
-                const type = document.getElementById('incident-type').value;
-                const impact = document.getElementById('incident-impact').value;
-                
-                if (!description || !type || !impact) {
-                    alert('Please fill in all required fields for incident report.');
-                    return;
-                }
-                
-                formData.append('description', description);
-                formData.append('type', type);
-                formData.append('impact', parseInt(impact));
-                formData.append('verified', false);
-                endpoint = '/api/incidents';
-            }
-
-            try {
-                console.log(`Submitting ${currentReportType} to ${endpoint}`);
-                const response = await fetch(endpoint, {
-                    method: 'POST',
-                    body: formData
-                });
-                
-                const result = await response.json();
-                console.log('Server response:', result);
-                
-                if (result.success) {
-                    if (currentReportType === 'hazard') {
-                        addHazardMarker(result.hazard);
-                        alert('Hazard reported successfully!');
-                    } else {
-                        addIncidentMarker(result.incident);
-                        alert('Incident reported successfully!');
-                    }
-                    hideReportForm();
+                const hazard = result.hazard;
+                if (hazard.lat && hazard.lng) {
+                    addHazardMarker(hazard);
+                    alert('Hazard reported successfully!');
                 } else {
-                    alert(`Error: ${result.message}`);
+                    console.error('Invalid hazard coordinates:', hazard);
+                    alert('Error: Invalid location data in hazard report.');
                 }
-            } catch (error) {
-                console.error('Submit error:', error);
-                alert('An error occurred while submitting the report.');
+            } else if (currentReportType === 'incident') {
+                const incident = result.incident;
+                if (incident.lat && incident.lng) {
+                    addIncidentMarker(incident);
+                    alert('Incident reported successfully!');
+                } else {
+                    console.error('Invalid incident coordinates:', incident);
+                    alert('Error: Invalid location data in incident report.');
+                }
             }
+            hideReportForm();
+        } else {
+            alert(`Error: ${result.message}`);
         }
+    } catch (error) {
+        console.error('Submit error:', error);
+        alert('An error occurred while submitting the report.');
+    }
+}
 
         // Keep track of search markers to remove them
 let searchMarkers = [];
@@ -1094,7 +1129,7 @@ document.getElementById('search-form').addEventListener('submit', async (e) => {
     console.log('Searching for:', searchText);
     
     // Clear previous search markers
-    searchMarkers.forEach(marker => marker.setMap(null));
+    searchMarkers.forEach(marker => marker.remove());
     searchMarkers = [];
     
     try {
@@ -1111,40 +1146,23 @@ document.getElementById('search-form').addEventListener('submit', async (e) => {
             const firstResult = result.results[0];
             
             const location = { lat: firstResult.lat, lng: firstResult.lng };
-            map.setCenter(location);
-            map.setZoom(15);
+            map.setView([location.lat, location.lng], 15);
             
             // Add marker and track it for removal
-            const marker = new google.maps.Marker({
-                map: map,
-                position: location,
-                title: firstResult.displayName || firstResult.name,
-                icon: {
-                    url: 'https://maps.google.com/mapfiles/kml/shapes/info-i_maps.png',
-                    scaledSize: new google.maps.Size(32, 32)
-                }
-            });
+            const marker = L.marker([location.lat, location.lng]).addTo(map);
             
             searchMarkers.push(marker); // Track for removal
             
             // Show info window
-            const infoWindow = new google.maps.InfoWindow({
-                content: `
+            const popupContent = `
                     <div style="padding: 5px;">
                         <h4>${firstResult.displayName || firstResult.name}</h4>
                         <p><strong>Type:</strong> ${firstResult.type}</p>
                         <p><strong>Coordinates:</strong> ${firstResult.lat.toFixed(4)}, ${firstResult.lng.toFixed(4)}</p>
                         ${result.results.length > 1 ? `<p><em>Found ${result.results.length} results</em></p>` : ''}
                     </div>
-                `
-            });
-            
-            marker.addListener('click', () => {
-                infoWindow.open(map, marker);
-            });
-            
-            // Show info window immediately
-            infoWindow.open(map, marker);
+                `;
+            marker.bindPopup(popupContent).openPopup();
             
             // Show success message
             showSearchMessage(`Found: ${firstResult.displayName || firstResult.name}`, 'success');
@@ -1154,65 +1172,6 @@ document.getElementById('search-form').addEventListener('submit', async (e) => {
             // Show clear button
             document.getElementById('clear-search').style.display = 'block';
             
-        } else if (result.useGeocoding) {
-            // Fallback to Google Maps Geocoding
-            console.log('Using Google Maps geocoding for:', searchText);
-            
-            const geocoder = new google.maps.Geocoder();
-            geocoder.geocode({ 
-                address: searchText,
-                region: 'VN', // Bias results to Vietnam
-                componentRestrictions: {
-                    country: 'VN' // Restrict to Vietnam
-                }
-            }, (results, status) => {
-                if (status === 'OK' && results[0]) {
-                    const location = results[0].geometry.location;
-                    map.setCenter(location);
-                    map.setZoom(15);
-                    
-                    // Add marker and track it for removal
-                    const marker = new google.maps.Marker({
-                        map: map,
-                        position: location,
-                        title: results[0].formatted_address,
-                        icon: {
-                            url: 'https://maps.google.com/mapfiles/kml/shapes/info-i_maps.png',
-                            scaledSize: new google.maps.Size(32, 32)
-                        }
-                    });
-                    
-                    searchMarkers.push(marker); // Track for removal
-                    
-                    // Show info window
-                    const infoWindow = new google.maps.InfoWindow({
-                        content: `
-                            <div style="padding: 5px;">
-                                <h4>Search Result</h4>
-                                <p>${results[0].formatted_address}</p>
-                                <p><strong>Coordinates:</strong> ${location.lat().toFixed(4)}, ${location.lng().toFixed(4)}</p>
-                            </div>
-                        `
-                    });
-                    
-                    marker.addListener('click', () => {
-                        infoWindow.open(map, marker);
-                    });
-                    
-                    // Show info window immediately
-                    infoWindow.open(map, marker);
-                    
-                    showSearchMessage(`Found: ${results[0].formatted_address}`, 'success');
-                    
-                    // Clear search bar
-                    document.getElementById('search-bar').value = '';
-                    // Show clear button
-                    document.getElementById('clear-search').style.display = 'block';
-                } else {
-                    console.error('Geocoding failed:', status);
-                    showSearchMessage(`Location "${searchText}" not found`, 'error');
-                }
-            });
         } else {
             showSearchMessage(result.message || 'No results found', 'error');
         }
@@ -1283,7 +1242,7 @@ function addSearchAutocomplete() {
     let currentSuggestions = null;
     let debounceTimer = null;
 function clearSearchMarkers() {
-    searchMarkers.forEach(marker => marker.setMap(null));
+    searchMarkers.forEach(marker => marker.remove());
     searchMarkers = [];
     document.getElementById('clear-search').style.display = 'none';
 }
@@ -1492,14 +1451,10 @@ document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('report-issue').addEventListener('click', function() {
         functionMenu.style.display = 'none';
         functionMenuVisible = false;
-        map.setOptions({ draggableCursor: 'crosshair' });
-        
-        // Add click listener to map for location selection
-        const clickListener = google.maps.event.addListener(map, 'click', function(event) {
-            selectedLocation = event.latLng;
-            map.setOptions({ draggableCursor: null });
+        map.on('click', function(e) {
+            selectedLocation = e.latlng;
             showReportForm();
-            google.maps.event.removeListener(clickListener);
+            map.off('click');
         });
     });
 
@@ -1509,20 +1464,16 @@ document.addEventListener('DOMContentLoaded', function() {
         loadCameraFeed(selectedCamera);
     });
 
-    if (window.google && window.google.maps) {
-        initMap();
-    } else {
-        console.error("Google Maps API not loaded yet.");
-    }
+    initMap();
 });
 
         window.addEventListener('load', function() {
             console.log("Window loaded, verifying elements...");
-            if (typeof google === 'undefined' || typeof google.maps === 'undefined') {
-                console.error("Google Maps API failed to load");
+            if (typeof L === 'undefined') {
+                console.error("Leaflet API failed to load");
                 document.getElementById('map-loading').style.display = 'none';
                 document.getElementById('map-error').style.display = 'block';
-            } else if (!document.getElementById('map').innerHTML) {
+            } else if (!map) {
                 initMap();
             }
         });
@@ -1531,39 +1482,46 @@ document.addEventListener('DOMContentLoaded', function() {
             try {
                 const response = await fetch('/api/hazards');
                 const data = await response.json();
-                if (data.success) {
-                    hazards = data.hazards;
-                    hazards.forEach(addHazardMarker);
+                if (data.success && Array.isArray(data.hazards)) {
+                    hazards = data.hazards; // Update the global hazards array
+                    hazards.forEach(addHazardMarker); // Iterate over the hazards array
+                } else {
+                    console.error('Invalid response format or no hazards found:', data);
+                    hazards = []; // Default to empty array if no data
                 }
             } catch (error) {
                 console.error('Error loading hazards:', error);
             }
         }
 
-        async function loadIncidents() {
-            try {
-                const response = await fetch('/api/incidents');
-                const data = await response.json();
-                if (data.success) {
-                    incidents = data.incidents;
-                    incidents.forEach(addIncidentMarker);
-                }
-            } catch (error) {
-                console.error('Error loading incidents:', error);
-            }
+async function loadIncidents() {
+    try {
+        const response = await fetch('/api/incidents');
+        const data = await response.json();
+        if (data.success && Array.isArray(data.incidents)) {
+            incidents = data.incidents;
+            incidents.forEach(addIncidentMarker);
+        } else {
+            console.error('Invalid response format or no incidents found:', data);
+            incidents = [];
         }
+    } catch (error) {
+        console.error('Error loading incidents:', error);
+    }
+}
 
         function addHazardMarker(hazard) {
-            const marker = new google.maps.Marker({
-                position: { lat: hazard.lat, lng: hazard.lng },
-                map: map,
-                icon: {
-                    url: 'https://maps.google.com/mapfiles/kml/shapes/caution.png',
-                    scaledSize: new google.maps.Size(32, 32)
-                }
-            });
-            const infoWindow = new google.maps.InfoWindow({
-                content: `
+            const marker = L.marker([hazard.lat, hazard.lng], {
+                icon: L.icon({
+                    iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-red.png',
+                    shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
+                    iconSize: [25, 41],
+                    iconAnchor: [12, 41],
+                    popupAnchor: [1, -34],
+                    shadowSize: [41, 41]
+                })
+            }).addTo(map);
+            const popupContent = `
                     <div style="max-width: 250px;">
                         <h4>⚠️ Hazard Report</h4>
                         <p><strong>Cause:</strong> ${hazard.cause}</p>
@@ -1572,24 +1530,22 @@ document.addEventListener('DOMContentLoaded', function() {
                         <p><strong>Reported:</strong> ${new Date(hazard.timestamp).toLocaleString()}</p>
                         ${hazard.imageUrl ? `<img src="${hazard.imageUrl}" style="max-width: 100%; height: auto; border-radius: 4px;">` : ''}
                     </div>
-                `
-            });
-            marker.addListener('click', function() {
-                infoWindow.open(map, marker);
-            });
+                `;
+            marker.bindPopup(popupContent);
         }
 
         function addIncidentMarker(incident) {
-            const marker = new google.maps.Marker({
-                position: { lat: incident.lat, lng: incident.lng },
-                map: map,
-                icon: {
-                    url: 'https://maps.google.com/mapfiles/kml/shapes/placemark_circle.png',
-                    scaledSize: new google.maps.Size(32, 32)
-                }
-            });
-            const infoWindow = new google.maps.InfoWindow({
-                content: `
+            const marker = L.marker([incident.lat, incident.lng], {
+                icon: L.icon({
+                    iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-orange.png',
+                    shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
+                    iconSize: [25, 41],
+                    iconAnchor: [12, 41],
+                    popupAnchor: [1, -34],
+                    shadowSize: [41, 41]
+                })
+            }).addTo(map);
+            const popupContent = `
                     <div style="max-width: 250px;">
                         <h4>🚨 Incident Report</h4>
                         <p><strong>Description:</strong> ${incident.description}</p>
@@ -1599,26 +1555,24 @@ document.addEventListener('DOMContentLoaded', function() {
                         <p><strong>Reported:</strong> ${new Date(incident.timestamp).toLocaleString()}</p>
                         ${incident.imageUrl ? `<img src="${incident.imageUrl}" style="max-width: 100%; height: auto; border-radius: 4px;">` : ''}
                     </div>
-                `
-            });
-            marker.addListener('click', function() {
-                infoWindow.open(map, marker);
-            });
+                `;
+            marker.bindPopup(popupContent);
         }
 
         function addCameraMarkers() {
             Object.entries(cameras).forEach(([id, camera]) => {
-                const marker = new google.maps.Marker({
-                    position: { lat: camera.lat, lng: camera.lng },
-                    map: map,
-                    icon: {
-                        url: 'https://maps.google.com/mapfiles/kml/shapes/camera.png',
-                        scaledSize: new google.maps.Size(32, 32)
-                    }
-                });
+                const marker = L.marker([camera.lat, camera.lng], {
+                    icon: L.icon({
+                        iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-blue.png',
+                        shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
+                        iconSize: [25, 41],
+                        iconAnchor: [12, 41],
+                        popupAnchor: [1, -34],
+                        shadowSize: [41, 41]
+                    })
+                }).addTo(map);
                 
-                const infoWindow = new google.maps.InfoWindow({
-                    content: `
+                const popupContent = `
                         <div style="min-width: 200px;">
                             <h4>📹 ${camera.name}</h4>
                             <p><strong>Traffic:</strong> ${camera.data.traffic}</p>
@@ -1626,12 +1580,8 @@ document.addEventListener('DOMContentLoaded', function() {
                                 View Live Feed
                             </button>
                         </div>
-                    `
-                });
-                
-                marker.addListener('click', () => {
-                    infoWindow.open(map, marker);
-                });
+                    `;
+                marker.bindPopup(popupContent);
             });
         }
 
