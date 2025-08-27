@@ -1,6 +1,7 @@
 const express = require('express');
 const path = require('path');
 const logger = require('./middleware/logger');
+const validateHazardIncident = require('./middleware/validate');
 const hazardRoutes = require('./routes/hazards');
 const incidentRoutes = require('./routes/incidents');
 const searchRoutes = require('./routes/search');
@@ -36,115 +37,26 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(logger);
 
-// Custom validation middleware for hazards and incidents - FIXED
-const validateHazardIncident = (req, res, next) => {
-    console.log('Validation middleware - Request body:', req.body);
-    console.log('Validation middleware - Files:', req.file);
-    
-    // Skip validation for GET requests
-    if (req.method === 'GET') {
-        return next();
-    }
-    
-    const { lat, lng, timestamp } = req.body;
-    
-    // Basic validation for all reports
-    if (!lat || !lng || !timestamp) {
-        return res.status(400).json({ 
-            success: false, 
-            message: 'Missing required fields: lat, lng, timestamp' 
+const uploadMiddleware = (req, res, next) => {
+    if (req.method === 'POST') {
+        upload.single('image')(req, res, (err) => {
+            if (err) {
+                console.error('Upload error:', err);
+                return res.status(400).json({
+                    success: false,
+                    message: 'File upload error: ' + err.message
+                });
+            }
+            next();
         });
+    } else {
+        next();
     }
-    
-    // Validate lat/lng are numbers
-    if (isNaN(parseFloat(lat)) || isNaN(parseFloat(lng))) {
-        return res.status(400).json({ 
-            success: false, 
-            message: 'Invalid coordinates: lat and lng must be numbers' 
-        });
-    }
-    
-    // For hazards
-    if (req.originalUrl.includes('/hazards')) {
-        const { cause, severity, notes } = req.body;
-        if (!cause || !severity || !notes) {
-            return res.status(400).json({ 
-                success: false, 
-                message: 'Missing required fields for hazard: cause, severity, notes' 
-            });
-        }
-        
-        // Validate severity is a number between 1-5
-        const severityNum = parseInt(severity);
-        if (isNaN(severityNum) || severityNum < 1 || severityNum > 5) {
-            return res.status(400).json({ 
-                success: false, 
-                message: 'Severity must be a number between 1 and 5' 
-            });
-        }
-    }
-    
-    // For incidents
-    if (req.originalUrl.includes('/incidents')) {
-        const { description, type, impact } = req.body;
-        if (!description || !type || !impact) {
-            return res.status(400).json({ 
-                success: false, 
-                message: 'Missing required fields for incident: description, type, impact' 
-            });
-        }
-        
-        // Validate impact is a number between 1-5
-        const impactNum = parseInt(impact);
-        if (isNaN(impactNum) || impactNum < 1 || impactNum > 5) {
-            return res.status(400).json({ 
-                success: false, 
-                message: 'Impact must be a number between 1 and 5' 
-            });
-        }
-    }
-    
-    next();
 };
 
-// Routes with proper error handling - FIXED
-app.use('/api/hazards', (req, res, next) => {
-    // Only apply upload middleware for POST requests
-    if (req.method === 'POST') {
-        const uploadMiddleware = upload.single('image');
-        uploadMiddleware(req, res, (err) => {
-            if (err) {
-                console.error('Upload error:', err);
-                return res.status(400).json({
-                    success: false,
-                    message: 'File upload error: ' + err.message
-                });
-            }
-            validateHazardIncident(req, res, next);
-        });
-    } else {
-        validateHazardIncident(req, res, next);
-    }
-}, hazardRoutes);
-
-app.use('/api/incidents', (req, res, next) => {
-    // Only apply upload middleware for POST requests
-    if (req.method === 'POST') {
-        const uploadMiddleware = upload.single('image');
-        uploadMiddleware(req, res, (err) => {
-            if (err) {
-                console.error('Upload error:', err);
-                return res.status(400).json({
-                    success: false,
-                    message: 'File upload error: ' + err.message
-                });
-            }
-            validateHazardIncident(req, res, next);
-        });
-    } else {
-        validateHazardIncident(req, res, next);
-    }
-}, incidentRoutes);
+// Routes
+app.use('/api/hazards', uploadMiddleware, validateHazardIncident, hazardRoutes);
+app.use('/api/incidents', uploadMiddleware, validateHazardIncident, incidentRoutes);
 
 app.use('/api/search', searchRoutes);
 app.use('/api/controls', controlRoutes);

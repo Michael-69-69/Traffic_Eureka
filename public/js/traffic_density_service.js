@@ -1,56 +1,38 @@
 class TrafficDensityService {
     constructor() {
-        this.baseUrl = '/api';
+        this.baseUrl = '/api/density';
     }
 
-    async fetchLiveDensities() {
+    async _fetch(endpoint, params = {}) {
+        const url = new URL(this.baseUrl + endpoint, window.location.origin);
+        Object.keys(params).forEach(key => url.searchParams.append(key, params[key]));
+
         try {
-            const response = await fetch(`${this.baseUrl}/density/live`);
+            const response = await fetch(url);
             if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
+                const errorBody = await response.text();
+                console.error(`HTTP error! Status: ${response.status}, Body: ${errorBody}`);
+                throw new Error(`Request to proxy failed with status ${response.status}`);
             }
-            const data = await response.json();
-            // The backend now provides all necessary data, so we return it directly.
-            return data;
+            return response.json();
         } catch (error) {
-            console.error('Error fetching live densities:', error);
-            // Re-throw the error to be handled by the caller
+            console.error(`Error fetching from proxy endpoint ${endpoint}:`, error);
             throw error;
         }
     }
 
-    async fetchDensityForecast(cameraId, timePoints = 120) {
-        try {
-            const response = await fetch(`${this.baseUrl}/density/forecast/${cameraId}?points=${timePoints}`);
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
-            const data = await response.json();
-            return data.forecasts;
-        } catch (error) {
-            console.error('Error fetching forecast:', error);
-            // Re-throw the error to be handled by the caller
-            throw error;
-        }
+    getLiveDensities() {
+        return this._fetch('/live');
     }
 
-    async getTodayVehicleCounts() {
-        try {
-            const response = await fetch(`${this.baseUrl}/density/today-counts`);
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
-            const data = await response.json();
-            return data;
-        } catch (error) {
-            console.error('Error fetching today vehicle counts:', error);
-            // Re-throw the error to be handled by the caller
-            throw error;
+    getForecast(cameraId, minutes = 60) {
+        if (!cameraId) {
+            throw new Error('Camera ID is required for fetching a forecast.');
         }
+        return this._fetch('/forecast', { camera: cameraId, minutes: minutes });
     }
 }
 
-// Export for use in other files
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = TrafficDensityService;
 } else {
