@@ -1,7 +1,6 @@
 const { initializeApp } = require('firebase/app');
 const { getFirestore, collection, addDoc, getDocs, doc, getDoc, updateDoc, deleteDoc } = require('firebase/firestore');
-const fs = require('fs');
-const path = require('path');
+const cloudinary = require('cloudinary').v2;
 
 // Firebase configuration (move to env vars in production)
 const firebaseConfig = {
@@ -18,6 +17,12 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 
+// Configure Cloudinary (move to env vars in production)
+cloudinary.config({
+    cloud_name: 'djdl8lpzs', // Replace with your Cloudinary cloud name
+    api_key: '445997324341426',      // Replace with your Cloudinary API key
+    api_secret: 'GwUeGrX5bLX8ZheeV97sLRIWxc8' // Replace with your Cloudinary API secret
+});
 class Hazard {
     static async create(hazardData) {
         try {
@@ -36,25 +41,32 @@ class Hazard {
             const docRef = await addDoc(collection(db, "hazards"), hazard);
             console.log("Hazard saved to Firestore with ID: ", docRef.id);
 
-            // Handle image storage locally
+            // Handle image upload to Cloudinary
             if (hazardData.image && hazardData.image.buffer) {
-                const uploadDir = path.join(__dirname, '..', 'public', 'uploads', 'hazards');
-                if (!fs.existsSync(uploadDir)) {
-                    fs.mkdirSync(uploadDir, { recursive: true });
-                }
+                console.log('Attempting to upload image to Cloudinary');
+                const uploadPromise = new Promise((resolve, reject) => {
+                    cloudinary.uploader.upload_stream(
+                        { folder: 'hazards', public_id: docRef.id, resource_type: 'image' },
+                        (error, result) => {
+                            if (error) {
+                                console.error('Cloudinary upload error:', error);
+                                reject(error);
+                            } else {
+                                console.log('Cloudinary upload success:', result);
+                                resolve(result);
+                            }
+                        }
+                    ).end(hazardData.image.buffer);
+                });
 
-                const fileExtension = path.extname(hazardData.image.originalname) || '.jpg';
-                const filename = `${docRef.id}${fileExtension}`; // Use Firestore ID for uniqueness
-                const filePath = path.join(uploadDir, filename);
-
-                fs.writeFileSync(filePath, hazardData.image.buffer);
-                hazard.imageUrl = `/uploads/hazards/${filename}`;
-                
-                // Update Firestore with image URL
+                const uploadResult = await uploadPromise;
+                hazard.imageUrl = uploadResult.secure_url;
                 await updateDoc(docRef, { imageUrl: hazard.imageUrl });
+                console.log('Updated hazard with imageUrl:', hazard.imageUrl);
+            } else {
+                console.log('No image provided or buffer missing, skipping upload');
             }
 
-            // Return hazard with Firestore ID
             return { id: docRef.id, ...hazard };
         } catch (error) {
             console.error('Error creating hazard:', error);

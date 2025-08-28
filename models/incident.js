@@ -1,7 +1,6 @@
 const { initializeApp } = require('firebase/app');
 const { getFirestore, collection, addDoc, getDocs, doc, getDoc, updateDoc, deleteDoc } = require('firebase/firestore');
-const fs = require('fs');
-const path = require('path');
+const cloudinary = require('cloudinary').v2;
 
 // Firebase configuration (move to env vars in production)
 const firebaseConfig = {
@@ -18,6 +17,12 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 
+// Configure Cloudinary (move to env vars in production)
+cloudinary.config({
+    cloud_name: 'djdl8lpzs', // Replace with your Cloudinary cloud name
+    api_key: '445997324341426',      // Replace with your Cloudinary API key
+    api_secret: 'GwUeGrX5bLX8ZheeV97sLRIWxc8' // Replace with your Cloudinary API secret
+});
 class Incident {
     static async create(incidentData) {
         try {
@@ -29,9 +34,9 @@ class Incident {
                 description: incidentData.description,
                 type: incidentData.type,
                 impact: parseInt(incidentData.impact),
-                timestamp: incidentData.timestamp,
+                timestamp: incidentData.timestamp || new Date().toISOString(),
                 verified: incidentData.verified || false,
-                imageUrl: incidentData.imageUrl || null,
+                imageUrl: null,
                 createdAt: new Date().toISOString()
             };
 
@@ -39,22 +44,30 @@ class Incident {
             const docRef = await addDoc(collection(db, "incidents"), incident);
             console.log("Incident saved to Firestore with ID: ", docRef.id);
 
-            // Handle image storage locally
+            // Handle image upload to Cloudinary
             if (incidentData.image && incidentData.image.buffer) {
-                const uploadDir = path.join(__dirname, '..', 'public', 'uploads', 'incidents');
-                if (!fs.existsSync(uploadDir)) {
-                    fs.mkdirSync(uploadDir, { recursive: true });
-                }
+                console.log('Attempting to upload image to Cloudinary');
+                const uploadPromise = new Promise((resolve, reject) => {
+                    cloudinary.uploader.upload_stream(
+                        { folder: 'incidents', public_id: docRef.id, resource_type: 'image' },
+                        (error, result) => {
+                            if (error) {
+                                console.error('Cloudinary upload error:', error);
+                                reject(error);
+                            } else {
+                                console.log('Cloudinary upload success:', result);
+                                resolve(result);
+                            }
+                        }
+                    ).end(incidentData.image.buffer);
+                });
 
-                const fileExtension = path.extname(incidentData.image.originalname) || '.jpg';
-                const filename = `${incident.id}${fileExtension}`;
-                const filePath = path.join(uploadDir, filename);
-
-                fs.writeFileSync(filePath, incidentData.image.buffer);
-                incident.imageUrl = `/uploads/incidents/${filename}`;
-                
-                // Update Firestore with image URL
+                const uploadResult = await uploadPromise;
+                incident.imageUrl = uploadResult.secure_url;
                 await updateDoc(docRef, { imageUrl: incident.imageUrl });
+                console.log('Updated incident with imageUrl:', incident.imageUrl);
+            } else {
+                console.log('No image provided or buffer missing, skipping upload');
             }
 
             console.log('Incident created:', incident);
