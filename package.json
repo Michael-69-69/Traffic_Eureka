@@ -27,6 +27,7 @@
     "dotenv": "^16.6.1",
     "express": "^5.1.0",
     "firebase": "^12.1.0",
+    "firebase-admin": "^13.5.0",
     "multer": "^2.0.2",
     "video.js": "^8.23.3"
   },

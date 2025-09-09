@@ -461,6 +461,35 @@
         .hazard-fields.active, .incident-fields.active {
             display: block;
         }
+
+        /* Accept/Reject button styles */
+        .action-buttons {
+            display: flex;
+            gap: 8px;
+            margin-top: 10px;
+        }
+        .action-buttons button {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background 0.3s ease;
+        }
+        .accept-btn {
+            background: #2e7d32;
+            color: white;
+        }
+        .accept-btn:hover {
+            background: #1b5e20;
+        }
+        .reject-btn {
+            background: #d32f2f;
+            color: white;
+        }
+        .reject-btn:hover {
+            background: #b71c1c;
+        }
     </style>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
@@ -1024,448 +1053,450 @@
             map.off('click');
         }
 
-async function submitReport() {
-    if (!selectedLocation) {
-        alert('Please select a location on the map first.');
-        return;
-    }
+        async function submitReport() {
+            if (!selectedLocation) {
+                alert('Please select a location on the map first.');
+                return;
+            }
 
-    const imageFile = document.getElementById('report-image').files[0];
-    const formData = new FormData();
-    
-    formData.append('lat', selectedLocation.lat);
-    formData.append('lng', selectedLocation.lng);
-    formData.append('timestamp', new Date().toISOString());
-    
-    if (imageFile) {
-        formData.append('image', imageFile);
-    }
+            const imageFile = document.getElementById('report-image').files[0];
+            const formData = new FormData();
+            
+            formData.append('lat', selectedLocation.lat);
+            formData.append('lng', selectedLocation.lng);
+            formData.append('timestamp', new Date().toISOString());
+            
+            if (imageFile) {
+                formData.append('image', imageFile);
+            }
 
-    let endpoint, requiredFields;
+            let endpoint, requiredFields;
 
-    if (currentReportType === 'hazard') {
-        const cause = document.getElementById('hazard-cause').value;
-        const severity = document.getElementById('hazard-severity').value;
-        const notes = document.getElementById('hazard-notes').value;
-        
-        if (!cause || !severity || !notes) {
-            alert('Please fill in all required fields for hazard report.');
-            return;
-        }
-        
-        formData.append('cause', cause);
-        formData.append('severity', parseInt(severity));
-        formData.append('notes', notes);
-        endpoint = '/api/hazards';
-    } else if (currentReportType === 'incident') {
-        const description = document.getElementById('incident-description').value;
-        const type = document.getElementById('incident-type').value;
-        const impact = document.getElementById('incident-impact').value;
-        
-        if (!description || !type || !impact) {
-            alert('Please fill in all required fields for incident report.');
-            return;
-        }
-        
-        formData.append('description', description);
-        formData.append('type', type);
-        formData.append('impact', parseInt(impact));
-        formData.append('verified', false); // Default to false
-        endpoint = '/api/incidents';
-    }
-
-    try {
-        console.log(`Submitting ${currentReportType} to ${endpoint}`);
-        const response = await fetch(endpoint, {
-            method: 'POST',
-            body: formData
-        });
-        
-        const result = await response.json();
-        console.log('Server response:', result);
-        
-        if (result.success) {
             if (currentReportType === 'hazard') {
-                const hazard = result.hazard;
-                if (hazard.lat && hazard.lng) {
-                    addHazardMarker(hazard);
-                    alert('Hazard reported successfully!');
-                } else {
-                    console.error('Invalid hazard coordinates:', hazard);
-                    alert('Error: Invalid location data in hazard report.');
+                const cause = document.getElementById('hazard-cause').value;
+                const severity = document.getElementById('hazard-severity').value;
+                const notes = document.getElementById('hazard-notes').value;
+                
+                if (!cause || !severity || !notes) {
+                    alert('Please fill in all required fields for hazard report.');
+                    return;
                 }
+                
+                formData.append('cause', cause);
+                formData.append('severity', parseInt(severity));
+                formData.append('notes', notes);
+                endpoint = '/api/hazards';
             } else if (currentReportType === 'incident') {
-                const incident = result.incident;
-                if (incident.lat && incident.lng) {
-                    addIncidentMarker(incident);
-                    alert('Incident reported successfully!');
-                } else {
-                    console.error('Invalid incident coordinates:', incident);
-                    alert('Error: Invalid location data in incident report.');
+                const description = document.getElementById('incident-description').value;
+                const type = document.getElementById('incident-type').value;
+                const impact = document.getElementById('incident-impact').value;
+                
+                if (!description || !type || !impact) {
+                    alert('Please fill in all required fields for incident report.');
+                    return;
                 }
+                
+                formData.append('description', description);
+                formData.append('type', type);
+                formData.append('impact', parseInt(impact));
+                formData.append('verified', false); // Default to false
+                formData.append('status', 'pending');
+                endpoint = '/api/incidents';
             }
-            hideReportForm();
-        } else {
-            alert(`Error: ${result.message}`);
-        }
-    } catch (error) {
-        console.error('Submit error:', error);
-        alert('An error occurred while submitting the report.');
-    }
-}
 
-        // Keep track of search markers to remove them
-let searchMarkers = [];
-
-document.getElementById('search-form').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const searchText = document.getElementById('search-bar').value.trim();
-    
-    if (!searchText) {
-        alert('Please enter a search term');
-        return;
-    }
-
-    console.log('Searching for:', searchText);
-    
-    // Clear previous search markers
-    searchMarkers.forEach(marker => marker.remove());
-    searchMarkers = [];
-    
-    try {
-        // First, try our backend search for Vietnam-specific places
-        const response = await fetch(`/api/search?query=${encodeURIComponent(searchText)}`, {
-            method: 'GET'
-        });
-        
-        const result = await response.json();
-        console.log('Backend search result:', result);
-        
-        if (result.success && result.results && result.results.length > 0) {
-            // Use backend results
-            const firstResult = result.results[0];
-            
-            const location = { lat: firstResult.lat, lng: firstResult.lng };
-            map.setView([location.lat, location.lng], 15);
-            
-            // Add marker and track it for removal
-            const marker = L.marker([location.lat, location.lng]).addTo(map);
-            
-            searchMarkers.push(marker); // Track for removal
-            
-            // Show info window
-            const popupContent = `
-                    <div style="padding: 5px;">
-                        <h4>${firstResult.displayName || firstResult.name}</h4>
-                        <p><strong>Type:</strong> ${firstResult.type}</p>
-                        <p><strong>Coordinates:</strong> ${firstResult.lat.toFixed(4)}, ${firstResult.lng.toFixed(4)}</p>
-                        ${result.results.length > 1 ? `<p><em>Found ${result.results.length} results</em></p>` : ''}
-                    </div>
-                `;
-            marker.bindPopup(popupContent).openPopup();
-            
-            // Show success message
-            showSearchMessage(`Found: ${firstResult.displayName || firstResult.name}`, 'success');
-            
-            // Clear search bar
-            document.getElementById('search-bar').value = '';
-            // Show clear button
-            document.getElementById('clear-search').style.display = 'block';
-            
-        } else {
-            showSearchMessage(result.message || 'No results found', 'error');
-        }
-        
-    } catch (error) {
-        console.error('Search error:', error);
-        showSearchMessage('Search failed. Please try again.', 'error');
-    }
-});
-
-// Enhanced search message function
-function showSearchMessage(message, type = 'info') {
-    // Remove existing message if any
-    const existingMessage = document.getElementById('search-message');
-    if (existingMessage) {
-        existingMessage.remove();
-    }
-    
-    // Create message element with better styling
-    const messageDiv = document.createElement('div');
-    messageDiv.id = 'search-message';
-    messageDiv.style.cssText = `
-        position: absolute;
-        top: 70px;
-        left: 20px;
-        background: ${type === 'success' ? '#4caf50' : type === 'error' ? '#f44336' : '#2196f3'};
-        color: white;
-        padding: 12px 16px;
-        border-radius: 6px;
-        z-index: 15;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.2);
-        max-width: 350px;
-        font-size: 14px;
-        font-weight: 500;
-        animation: slideInFadeOut 5s ease-in-out;
-        backdrop-filter: blur(10px);
-    `;
-    messageDiv.textContent = message;
-    
-    // Add enhanced animation
-    if (!document.getElementById('search-animations')) {
-        const style = document.createElement('style');
-        style.id = 'search-animations';
-        style.textContent = `
-            @keyframes slideInFadeOut {
-                0% { opacity: 0; transform: translateX(-20px); }
-                15%, 85% { opacity: 1; transform: translateX(0); }
-                100% { opacity: 0; transform: translateX(-20px); }
-            }
-        `;
-        document.head.appendChild(style);
-    }
-    
-    // Add to page
-    document.getElementById('map-container').appendChild(messageDiv);
-    
-    // Auto remove after 5 seconds
-    setTimeout(() => {
-        if (messageDiv.parentNode) {
-            messageDiv.remove();
-        }
-    }, 5000);
-}
-
-function addSearchAutocomplete() {
-    const searchBar = document.getElementById('search-bar');
-    const searchForm = document.getElementById('search-form');
-    let currentSuggestions = null;
-    let debounceTimer = null;
-function clearSearchMarkers() {
-    searchMarkers.forEach(marker => marker.remove());
-    searchMarkers = [];
-    document.getElementById('clear-search').style.display = 'none';
-}
-    
-    // Fallback suggestions from your vietnamPlaces data
-    const fallbackSuggestions = [
-        { name: 'district 1', displayName: 'District 1', type: 'district' },
-        { name: 'district 3', displayName: 'District 3', type: 'district' },
-        { name: 'binh thanh', displayName: 'Binh Thanh District', type: 'district' },
-        { name: 'ben thanh market', displayName: 'Ben Thanh Market', type: 'landmark' },
-        { name: 'nguyen hue', displayName: 'Nguyen Hue Street', type: 'street' },
-        { name: 'le loi', displayName: 'Le Loi Street', type: 'street' },
-        { name: 'dong khoi', displayName: 'Dong Khoi Street', type: 'street' },
-        { name: 'reunification palace', displayName: 'Reunification Palace', type: 'landmark' },
-        { name: 'notre dame cathedral', displayName: 'Notre Dame Cathedral', type: 'landmark' },
-        { name: 'bitexco tower', displayName: 'Bitexco Financial Tower', type: 'landmark' }
-    ];
-    
-    function filterSuggestions(query) {
-        const normalizedQuery = query.toLowerCase().trim();
-        return fallbackSuggestions.filter(item => 
-            item.name.includes(normalizedQuery) || 
-            item.displayName.toLowerCase().includes(normalizedQuery)
-        ).slice(0, 6);
-    }
-    
-    searchBar.addEventListener('input', async (e) => {
-        const query = e.target.value.trim();
-        
-        if (debounceTimer) {
-            clearTimeout(debounceTimer);
-        }
-        
-        if (currentSuggestions) {
-            currentSuggestions.remove();
-            currentSuggestions = null;
-        }
-        
-        if (query.length < 1) return;
-        
-        debounceTimer = setTimeout(async () => {
-            let suggestions = [];
-            
             try {
-                const response = await fetch(`/api/search/suggestions?q=${encodeURIComponent(query)}`);
-                
-                if (response.ok) {
-                    const result = await response.json();
-                    
-                    if (result.success && result.suggestions && result.suggestions.length > 0) {
-                        suggestions = result.suggestions;
-                    } else {
-                        suggestions = filterSuggestions(query);
-                    }
-                } else {
-                    suggestions = filterSuggestions(query);
-                }
-            } catch (error) {
-                console.error('Error fetching suggestions:', error);
-                suggestions = filterSuggestions(query);
-            }
-            
-            if (suggestions.length > 0) {
-                // Create suggestions dropdown - FIXED POSITIONING
-                currentSuggestions = document.createElement('div');
-                currentSuggestions.className = 'search-suggestions';
-                currentSuggestions.style.cssText = `
-                    position: absolute;
-                    top: calc(100% + 2px);
-                    left: 0;
-                    right: 0;
-                    background: white;
-                    border: 1px solid #ddd;
-                    border-radius: 8px;
-                    box-shadow: 0 4px 20px rgba(0,0,0,0.2);
-                    z-index: 1000;
-                    max-height: 300px;
-                    overflow-y: auto;
-                    margin: 0;
-                    width: 100%;
-                `;
-                
-                suggestions.forEach((suggestion, index) => {
-                    const item = document.createElement('div');
-                    item.className = 'suggestion-item';
-                    item.style.cssText = `
-                        padding: 12px 15px;
-                        cursor: pointer;
-                        border-bottom: ${index === suggestions.length - 1 ? 'none' : '1px solid #eee'};
-                        transition: background-color 0.2s ease;
-                        font-size: 14px;
-                        color: #333;
-                    `;
-                    
-                    item.innerHTML = `
-                        <div style="font-weight: 500;">${suggestion.displayName || suggestion.name}</div>
-                        <div style="font-size: 12px; color: #666; margin-top: 2px;">${suggestion.type}</div>
-                    `;
-                    
-                    item.addEventListener('mouseenter', () => {
-                        item.style.backgroundColor = '#f8f9fa';
-                    });
-                    
-                    item.addEventListener('mouseleave', () => {
-                        item.style.backgroundColor = 'white';
-                    });
-                    
-                    item.addEventListener('click', (e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        
-                        searchBar.value = suggestion.displayName || suggestion.name;
-                        
-                        if (currentSuggestions) {
-                            currentSuggestions.remove();
-                            currentSuggestions = null;
-                        }
-                        
-                        // Trigger search
-                        const submitEvent = new Event('submit', { bubbles: true, cancelable: true });
-                        document.getElementById('search-form').dispatchEvent(submitEvent);
-                    });
-                    
-                    currentSuggestions.appendChild(item);
+                console.log(`Submitting ${currentReportType} to ${endpoint}`);
+                const response = await fetch(endpoint, {
+                    method: 'POST',
+                    body: formData
                 });
                 
-                // Append to map container, not search form
-                document.getElementById('map-container').appendChild(currentSuggestions);
+                const result = await response.json();
+                console.log('Server response:', result);
                 
-                // Position relative to search form
-                const searchFormRect = searchForm.getBoundingClientRect();
-                currentSuggestions.style.position = 'absolute';
-                currentSuggestions.style.left = searchFormRect.left + 'px';
-                currentSuggestions.style.top = (searchFormRect.bottom + 2) + 'px';
-                currentSuggestions.style.width = searchFormRect.width + 'px';
+                if (result.success) {
+                    if (currentReportType === 'hazard') {
+                        const hazard = result.hazard;
+                        if (hazard.lat && hazard.lng) {
+                            addHazardMarker(hazard);
+                            alert('Hazard reported successfully!');
+                        } else {
+                            console.error('Invalid hazard coordinates:', hazard);
+                            alert('Error: Invalid location data in hazard report.');
+                        }
+                    } else if (currentReportType === 'incident') {
+                        const incident = result.incident;
+                        if (incident.lat && incident.lng && incident.id) {
+                            addIncidentMarker(incident);
+                            alert('Incident reported successfully!');
+                        } else {
+                            console.error('Invalid incident data:', incident);
+                            alert('Error: Invalid location or ID data in incident report.');
+                        }
+                    }
+                    hideReportForm();
+                } else {
+                    alert(`Error: ${result.message}`);
+                }
+            } catch (error) {
+                console.error('Submit error:', error);
+                alert('An error occurred while submitting the report.');
             }
-        }, 250);
-    });
-    
-    // Hide suggestions when clicking outside
-    document.addEventListener('click', (e) => {
-        if (currentSuggestions && !searchForm.contains(e.target) && !currentSuggestions.contains(e.target)) {
-            currentSuggestions.remove();
-            currentSuggestions = null;
         }
-    });
-    
-    // Clear suggestions when search bar loses focus
-    searchBar.addEventListener('blur', () => {
-        setTimeout(() => {
-            if (currentSuggestions && !currentSuggestions.matches(':hover')) {
-                currentSuggestions.remove();
-                currentSuggestions = null;
+
+        // Keep track of search markers to remove them
+        let searchMarkers = [];
+
+        document.getElementById('search-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const searchText = document.getElementById('search-bar').value.trim();
+            
+            if (!searchText) {
+                alert('Please enter a search term');
+                return;
             }
-        }, 200);
-    });
-}
 
-document.addEventListener('DOMContentLoaded', function() {
-    console.log("DOM loaded, initializing...");
-    document.getElementById('map-loading').style.display = 'block';
-    
-    // Initialize event listeners
-    
-    // Report type tabs
-    document.getElementById('hazard-tab').addEventListener('click', () => switchReportType('hazard'));
-    document.getElementById('incident-tab').addEventListener('click', () => switchReportType('incident'));
-    
-    // Report form buttons
-    document.getElementById('submit-report').addEventListener('click', submitReport);
-    document.getElementById('cancel-report').addEventListener('click', hideReportForm);
-    
-    // Initialize search autocomplete AFTER DOM is ready
-    addSearchAutocomplete();
-    // Initialize dashboard
-    let dashboardManager = null;
-    document.getElementById('view-dashboard').addEventListener('click', () => {
-        if (!dashboardManager) {
-            dashboardManager = new DashboardManager();
-        }
-        dashboardManager.openDashboard();
-    });
-
-    // Panel toggles
-    document.getElementById('toggle-options').addEventListener('click', () => togglePanel('options-panel'));
-    document.getElementById('view-live-feeds').addEventListener('click', () => togglePanel('traffic-panel'));
-
-    // Function menu
-    const otherFunctions = document.getElementById('other-functions');
-    const functionMenu = document.getElementById('function-menu');
-
-    otherFunctions.addEventListener('click', function(e) {
-        e.stopPropagation();
-        functionMenuVisible = !functionMenuVisible;
-        functionMenu.style.display = functionMenuVisible ? 'block' : 'none';
-    });
-
-    document.addEventListener('click', function(e) {
-        if (!otherFunctions.contains(e.target) && !functionMenu.contains(e.target)) {
-            functionMenu.style.display = 'none';
-            functionMenuVisible = false;
-        }
-    });
-
-    // Report issue button
-    document.getElementById('report-issue').addEventListener('click', function() {
-        functionMenu.style.display = 'none';
-        functionMenuVisible = false;
-        map.on('click', function(e) {
-            selectedLocation = e.latlng;
-            showReportForm();
-            map.off('click');
+            console.log('Searching for:', searchText);
+            
+            // Clear previous search markers
+            searchMarkers.forEach(marker => marker.remove());
+            searchMarkers = [];
+            
+            try {
+                // First, try our backend search for Vietnam-specific places
+                const response = await fetch(`/api/search?query=${encodeURIComponent(searchText)}`, {
+                    method: 'GET'
+                });
+                
+                const result = await response.json();
+                console.log('Backend search result:', result);
+                
+                if (result.success && result.results && result.results.length > 0) {
+                    // Use backend results
+                    const firstResult = result.results[0];
+                    
+                    const location = { lat: firstResult.lat, lng: firstResult.lng };
+                    map.setView([location.lat, location.lng], 15);
+                    
+                    // Add marker and track it for removal
+                    const marker = L.marker([location.lat, location.lng]).addTo(map);
+                    
+                    searchMarkers.push(marker); // Track for removal
+                    
+                    // Show info window
+                    const popupContent = `
+                            <div style="padding: 5px;">
+                                <h4>${firstResult.displayName || firstResult.name}</h4>
+                                <p><strong>Type:</strong> ${firstResult.type}</p>
+                                <p><strong>Coordinates:</strong> ${firstResult.lat.toFixed(4)}, ${firstResult.lng.toFixed(4)}</p>
+                                ${result.results.length > 1 ? `<p><em>Found ${result.results.length} results</em></p>` : ''}
+                            </div>
+                        `;
+                    marker.bindPopup(popupContent).openPopup();
+                    
+                    // Show success message
+                    showSearchMessage(`Found: ${firstResult.displayName || firstResult.name}`, 'success');
+                    
+                    // Clear search bar
+                    document.getElementById('search-bar').value = '';
+                    // Show clear button
+                    document.getElementById('clear-search').style.display = 'block';
+                    
+                } else {
+                    showSearchMessage(result.message || 'No results found', 'error');
+                }
+                
+            } catch (error) {
+                console.error('Search error:', error);
+                showSearchMessage('Search failed. Please try again.', 'error');
+            }
         });
-    });
 
-    // Camera selection
-    document.getElementById('camera-select').addEventListener('change', function() {
-        const selectedCamera = this.value;
-        loadCameraFeed(selectedCamera);
-    });
+        // Enhanced search message function
+        function showSearchMessage(message, type = 'info') {
+            // Remove existing message if any
+            const existingMessage = document.getElementById('search-message');
+            if (existingMessage) {
+                existingMessage.remove();
+            }
+            
+            // Create message element with better styling
+            const messageDiv = document.createElement('div');
+            messageDiv.id = 'search-message';
+            messageDiv.style.cssText = `
+                position: absolute;
+                top: 70px;
+                left: 20px;
+                background: ${type === 'success' ? '#4caf50' : type === 'error' ? '#f44336' : '#2196f3'};
+                color: white;
+                padding: 12px 16px;
+                border-radius: 6px;
+                z-index: 15;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+                max-width: 350px;
+                font-size: 14px;
+                font-weight: 500;
+                animation: slideInFadeOut 5s ease-in-out;
+                backdrop-filter: blur(10px);
+            `;
+            messageDiv.textContent = message;
+            
+            // Add enhanced animation
+            if (!document.getElementById('search-animations')) {
+                const style = document.createElement('style');
+                style.id = 'search-animations';
+                style.textContent = `
+                    @keyframes slideInFadeOut {
+                        0% { opacity: 0; transform: translateX(-20px); }
+                        15%, 85% { opacity: 1; transform: translateX(0); }
+                        100% { opacity: 0; transform: translateX(-20px); }
+                    }
+                `;
+                document.head.appendChild(style);
+            }
+            
+            // Add to page
+            document.getElementById('map-container').appendChild(messageDiv);
+            
+            // Auto remove after 5 seconds
+            setTimeout(() => {
+                if (messageDiv.parentNode) {
+                    messageDiv.remove();
+                }
+            }, 5000);
+        }
 
-    initMap();
-});
+        function addSearchAutocomplete() {
+            const searchBar = document.getElementById('search-bar');
+            const searchForm = document.getElementById('search-form');
+            let currentSuggestions = null;
+            let debounceTimer = null;
+
+            function clearSearchMarkers() {
+                searchMarkers.forEach(marker => marker.remove());
+                searchMarkers = [];
+                document.getElementById('clear-search').style.display = 'none';
+            }
+            
+            // Fallback suggestions from your vietnamPlaces data
+            const fallbackSuggestions = [
+                { name: 'district 1', displayName: 'District 1', type: 'district' },
+                { name: 'district 3', displayName: 'District 3', type: 'district' },
+                { name: 'binh thanh', displayName: 'Binh Thanh District', type: 'district' },
+                { name: 'ben thanh market', displayName: 'Ben Thanh Market', type: 'landmark' },
+                { name: 'nguyen hue', displayName: 'Nguyen Hue Street', type: 'street' },
+                { name: 'le loi', displayName: 'Le Loi Street', type: 'street' },
+                { name: 'dong khoi', displayName: 'Dong Khoi Street', type: 'street' },
+                { name: 'reunification palace', displayName: 'Reunification Palace', type: 'landmark' },
+                { name: 'notre dame cathedral', displayName: 'Notre Dame Cathedral', type: 'landmark' },
+                { name: 'bitexco tower', displayName: 'Bitexco Financial Tower', type: 'landmark' }
+            ];
+            
+            function filterSuggestions(query) {
+                const normalizedQuery = query.toLowerCase().trim();
+                return fallbackSuggestions.filter(item => 
+                    item.name.includes(normalizedQuery) || 
+                    item.displayName.toLowerCase().includes(normalizedQuery)
+                ).slice(0, 6);
+            }
+            
+            searchBar.addEventListener('input', async (e) => {
+                const query = e.target.value.trim();
+                
+                if (debounceTimer) {
+                    clearTimeout(debounceTimer);
+                }
+                
+                if (currentSuggestions) {
+                    currentSuggestions.remove();
+                    currentSuggestions = null;
+                }
+                
+                if (query.length < 1) return;
+                
+                debounceTimer = setTimeout(async () => {
+                    let suggestions = [];
+                    
+                    try {
+                        const response = await fetch(`/api/search/suggestions?q=${encodeURIComponent(query)}`);
+                        
+                        if (response.ok) {
+                            const result = await response.json();
+                            
+                            if (result.success && result.suggestions && result.suggestions.length > 0) {
+                                suggestions = result.suggestions;
+                            } else {
+                                suggestions = filterSuggestions(query);
+                            }
+                        } else {
+                            suggestions = filterSuggestions(query);
+                        }
+                    } catch (error) {
+                        console.error('Error fetching suggestions:', error);
+                        suggestions = filterSuggestions(query);
+                    }
+                    
+                    if (suggestions.length > 0) {
+                        // Create suggestions dropdown - FIXED POSITIONING
+                        currentSuggestions = document.createElement('div');
+                        currentSuggestions.className = 'search-suggestions';
+                        currentSuggestions.style.cssText = `
+                            position: absolute;
+                            top: calc(100% + 2px);
+                            left: 0;
+                            right: 0;
+                            background: white;
+                            border: 1px solid #ddd;
+                            border-radius: 8px;
+                            box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+                            z-index: 1000;
+                            max-height: 300px;
+                            overflow-y: auto;
+                            margin: 0;
+                            width: 100%;
+                        `;
+                        
+                        suggestions.forEach((suggestion, index) => {
+                            const item = document.createElement('div');
+                            item.className = 'suggestion-item';
+                            item.style.cssText = `
+                                padding: 12px 15px;
+                                cursor: pointer;
+                                border-bottom: ${index === suggestions.length - 1 ? 'none' : '1px solid #eee'};
+                                transition: background-color 0.2s ease;
+                                font-size: 14px;
+                                color: #333;
+                            `;
+                            
+                            item.innerHTML = `
+                                <div style="font-weight: 500;">${suggestion.displayName || suggestion.name}</div>
+                                <div style="font-size: 12px; color: #666; margin-top: 2px;">${suggestion.type}</div>
+                            `;
+                            
+                            item.addEventListener('mouseenter', () => {
+                                item.style.backgroundColor = '#f8f9fa';
+                            });
+                            
+                            item.addEventListener('mouseleave', () => {
+                                item.style.backgroundColor = 'white';
+                            });
+                            
+                            item.addEventListener('click', (e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                
+                                searchBar.value = suggestion.displayName || suggestion.name;
+                                
+                                if (currentSuggestions) {
+                                    currentSuggestions.remove();
+                                    currentSuggestions = null;
+                                }
+                                
+                                // Trigger search
+                                const submitEvent = new Event('submit', { bubbles: true, cancelable: true });
+                                document.getElementById('search-form').dispatchEvent(submitEvent);
+                            });
+                            
+                            currentSuggestions.appendChild(item);
+                        });
+                        
+                        // Append to map container, not search form
+                        document.getElementById('map-container').appendChild(currentSuggestions);
+                        
+                        // Position relative to search form
+                        const searchFormRect = searchForm.getBoundingClientRect();
+                        currentSuggestions.style.position = 'absolute';
+                        currentSuggestions.style.left = searchFormRect.left + 'px';
+                        currentSuggestions.style.top = (searchFormRect.bottom + 2) + 'px';
+                        currentSuggestions.style.width = searchFormRect.width + 'px';
+                    }
+                }, 250);
+            });
+            
+            // Hide suggestions when clicking outside
+            document.addEventListener('click', (e) => {
+                if (currentSuggestions && !searchForm.contains(e.target) && !currentSuggestions.contains(e.target)) {
+                    currentSuggestions.remove();
+                    currentSuggestions = null;
+                }
+            });
+            
+            // Clear suggestions when search bar loses focus
+            searchBar.addEventListener('blur', () => {
+                setTimeout(() => {
+                    if (currentSuggestions && !currentSuggestions.matches(':hover')) {
+                        currentSuggestions.remove();
+                        currentSuggestions = null;
+                    }
+                }, 200);
+            });
+        }
+
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log("DOM loaded, initializing...");
+            document.getElementById('map-loading').style.display = 'block';
+            
+            // Initialize event listeners
+            
+            // Report type tabs
+            document.getElementById('hazard-tab').addEventListener('click', () => switchReportType('hazard'));
+            document.getElementById('incident-tab').addEventListener('click', () => switchReportType('incident'));
+            
+            // Report form buttons
+            document.getElementById('submit-report').addEventListener('click', submitReport);
+            document.getElementById('cancel-report').addEventListener('click', hideReportForm);
+            
+            // Initialize search autocomplete AFTER DOM is ready
+            addSearchAutocomplete();
+            // Initialize dashboard
+            let dashboardManager = null;
+            document.getElementById('view-dashboard').addEventListener('click', () => {
+                if (!dashboardManager) {
+                    dashboardManager = new DashboardManager();
+                }
+                dashboardManager.openDashboard();
+            });
+
+            // Panel toggles
+            document.getElementById('toggle-options').addEventListener('click', () => togglePanel('options-panel'));
+            document.getElementById('view-live-feeds').addEventListener('click', () => togglePanel('traffic-panel'));
+
+            // Function menu
+            const otherFunctions = document.getElementById('other-functions');
+            const functionMenu = document.getElementById('function-menu');
+
+            otherFunctions.addEventListener('click', function(e) {
+                e.stopPropagation();
+                functionMenuVisible = !functionMenuVisible;
+                functionMenu.style.display = functionMenuVisible ? 'block' : 'none';
+            });
+
+            document.addEventListener('click', function(e) {
+                if (!otherFunctions.contains(e.target) && !functionMenu.contains(e.target)) {
+                    functionMenu.style.display = 'none';
+                    functionMenuVisible = false;
+                }
+            });
+
+            // Report issue button
+            document.getElementById('report-issue').addEventListener('click', function() {
+                functionMenu.style.display = 'none';
+                functionMenuVisible = false;
+                map.on('click', function(e) {
+                    selectedLocation = e.latlng;
+                    showReportForm();
+                    map.off('click');
+                });
+            });
+
+            // Camera selection
+            document.getElementById('camera-select').addEventListener('change', function() {
+                const selectedCamera = this.value;
+                loadCameraFeed(selectedCamera);
+            });
+
+            initMap();
+        });
 
         window.addEventListener('load', function() {
             console.log("Window loaded, verifying elements...");
@@ -1494,21 +1525,22 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         }
 
-async function loadIncidents() {
-    try {
-        const response = await fetch('/api/incidents');
-        const data = await response.json();
-        if (data.success && Array.isArray(data.incidents)) {
-            incidents = data.incidents;
-            incidents.forEach(addIncidentMarker);
-        } else {
-            console.error('Invalid response format or no incidents found:', data);
-            incidents = [];
+        async function loadIncidents() {
+            try {
+                const response = await fetch('/api/incidents');
+                const data = await response.json();
+                console.log('Fetched incidents:', data);
+                if (data.success && Array.isArray(data.incidents)) {
+                    incidents = data.incidents.filter(incident => incident.id); // Filter out incidents with missing IDs
+                    incidents.forEach(addIncidentMarker);
+                } else {
+                    console.error('Invalid response format or no incidents found:', data);
+                    incidents = [];
+                }
+            } catch (error) {
+                console.error('Error loading incidents:', error);
+            }
         }
-    } catch (error) {
-        console.error('Error loading incidents:', error);
-    }
-}
 
         function addHazardMarker(hazard) {
             const marker = L.marker([hazard.lat, hazard.lng], {
@@ -1535,6 +1567,11 @@ async function loadIncidents() {
         }
 
         function addIncidentMarker(incident) {
+            console.log('Adding incident marker:', incident);
+            if (!incident.id) {
+                console.error('Incident missing ID:', incident);
+                return;
+            }
             const marker = L.marker([incident.lat, incident.lng], {
                 icon: L.icon({
                     iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-orange.png',
@@ -1551,13 +1588,62 @@ async function loadIncidents() {
                         <p><strong>Description:</strong> ${incident.description}</p>
                         <p><strong>Type:</strong> ${incident.type}</p>
                         <p><strong>Impact:</strong> ${incident.impact}/5</p>
+                        <p><strong>Status:</strong> ${incident.status}</p>
                         <p><strong>Verified:</strong> ${incident.verified ? 'Yes' : 'No'}</p>
                         <p><strong>Reported:</strong> ${new Date(incident.timestamp).toLocaleString()}</p>
                         ${incident.imageUrl ? `<img src="${incident.imageUrl}" style="max-width: 100%; height: auto; border-radius: 4px;">` : ''}
+                        ${incident.status === 'pending' && incident.id ? `
+                            <div class="action-buttons">
+                                <button class="accept-btn" onclick="handleIncidentAction('${incident.id}', 'accept')">Accept</button>
+                                <button class="reject-btn" onclick="handleIncidentAction('${incident.id}', 'reject')">Reject</button>
+                            </div>
+                        ` : ''}
                     </div>
                 `;
             marker.bindPopup(popupContent);
         }
+
+    async function handleIncidentAction(incidentId, action) {
+    console.log('Handling incident action:', { incidentId, action });
+    if (!incidentId) {
+        console.error('Missing incidentId');
+        alert('Error: No incident ID provided');
+        return;
+    }
+    try {
+        const endpoint = `/api/incidents/${incidentId}/${action}`;
+        console.log('Requesting endpoint:', endpoint);
+        const response = await fetch(endpoint, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json'
+                // Add Authorization header if required, e.g.:
+                // 'Authorization': `Bearer ${await firebase.auth().currentUser.getIdToken()}`
+            },
+            body: JSON.stringify({ status: action }) // Add body with status
+        });
+        const result = await response.json();
+        console.log('Response:', result);
+        if (result.success) {
+            const updatedIncidents = incidents.map(inc => 
+                inc.id === incidentId ? { ...inc, status: action === 'accept' ? 'accepted' : 'rejected' } : inc
+            );
+            incidents = updatedIncidents;
+            map.eachLayer(layer => {
+                if (layer instanceof L.Marker && layer.options.icon.options.iconUrl.includes('marker-icon-orange')) {
+                    map.removeLayer(layer);
+                }
+            });
+            incidents.forEach(addIncidentMarker);
+            alert(`Incident ${action}ed successfully!`);
+        } else {
+            alert(`Error: ${result.message || 'Failed to process incident'}`);
+        }
+    } catch (error) {
+        console.error(`Error ${action}ing incident:`, error);
+        alert(`An error occurred while ${action}ing the incident: ${error.message}`);
+    }
+}
 
         function addCameraMarkers() {
             Object.entries(cameras).forEach(([id, camera]) => {
